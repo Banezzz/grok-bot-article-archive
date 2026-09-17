@@ -13,7 +13,7 @@ img.thumb { cursor: zoom-in; }
 img.archive-lightbox-source { cursor: zoom-in; }
 .archive-lightbox { width: min(100vw, 100%); max-width: 100vw; height: 100%; max-height: 100vh; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; }
 .archive-lightbox::backdrop { background: transparent; }
-.archive-lightbox-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 28px 16px 20px; background: var(--lb-scrim); color: var(--lb-fg); }
+.archive-lightbox-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 36px 20px 24px; background: var(--lb-scrim); color: var(--lb-fg); }
 .archive-lightbox-figure { position: relative; display: flex; align-items: center; justify-content: center; max-width: min(96vw, 1400px); max-height: calc(100vh - 48px); }
 .archive-lightbox-img { display: block; max-width: min(92vw, 1280px); max-height: calc(100vh - 72px); width: auto; height: auto; object-fit: contain; border-radius: 10px; box-shadow: var(--lb-shadow); background: var(--lb-frame); }
 .archive-lightbox-close, .archive-lightbox-prev, .archive-lightbox-next {
@@ -21,28 +21,28 @@ img.archive-lightbox-source { cursor: zoom-in; }
   font: 600 14px/1.2 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
   cursor: pointer; border-radius: 999px; box-shadow: var(--lb-shadow);
 }
-.archive-lightbox-close { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 8px 12px; }
-.archive-lightbox-prev, .archive-lightbox-next { position: absolute; top: 50%; transform: translateY(-50%); width: 42px; height: 42px; padding: 0; font-size: 28px; font-weight: 500; }
+.archive-lightbox-close { position: absolute; top: 10px; right: 10px; z-index: 3; padding: 8px 12px; }
+.archive-lightbox-prev, .archive-lightbox-next { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; width: 42px; height: 42px; padding: 0; font-size: 28px; font-weight: 500; }
 .archive-lightbox-prev { left: 10px; }
 .archive-lightbox-next { right: 10px; }
 .archive-lightbox-close:hover, .archive-lightbox-prev:hover, .archive-lightbox-next:hover { background: var(--lb-control-hover); }
 .archive-lightbox-close:focus-visible, .archive-lightbox-prev:focus-visible, .archive-lightbox-next:focus-visible { outline: 2px solid var(--lb-accent); outline-offset: 2px; }
 .archive-lightbox-prev[hidden], .archive-lightbox-next[hidden] { display: none; }
 .archive-lightbox-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-html { --lb-scrim: rgba(243, 240, 232, .88); --lb-fg: #1a1814; --lb-frame: #fffdf8; --lb-border: rgba(26, 24, 20, .16); --lb-control-bg: rgba(255, 253, 248, .92); --lb-control-fg: #1a1814; --lb-control-hover: #fff; --lb-accent: #0c6a52; --lb-shadow: 0 12px 40px rgba(26, 24, 20, .18); }
+html { --lb-scrim: rgba(42, 36, 28, .48); --lb-fg: #1a1814; --lb-frame: #fffdf8; --lb-border: rgba(26, 24, 20, .16); --lb-control-bg: rgba(255, 253, 248, .96); --lb-control-fg: #1a1814; --lb-control-hover: #fff; --lb-accent: #0c6a52; --lb-shadow: 0 12px 40px rgba(26, 24, 20, .22); }
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) { --lb-scrim: rgba(12, 10, 8, .82); --lb-fg: #f4efe6; --lb-frame: #1d1a16; --lb-border: rgba(244, 239, 230, .16); --lb-control-bg: rgba(29, 26, 22, .92); --lb-control-fg: #f4efe6; --lb-control-hover: #2a2620; --lb-accent: #86d4b0; --lb-shadow: 0 16px 48px rgba(0, 0, 0, .45); }
 }
 html[data-theme="dark"] { --lb-scrim: rgba(12, 10, 8, .82); --lb-fg: #f4efe6; --lb-frame: #1d1a16; --lb-border: rgba(244, 239, 230, .16); --lb-control-bg: rgba(29, 26, 22, .92); --lb-control-fg: #f4efe6; --lb-control-hover: #2a2620; --lb-accent: #86d4b0; --lb-shadow: 0 16px 48px rgba(0, 0, 0, .45); }
-html[data-theme="light"] { --lb-scrim: rgba(243, 240, 232, .88); --lb-fg: #1a1814; --lb-frame: #fffdf8; --lb-border: rgba(26, 24, 20, .16); --lb-control-bg: rgba(255, 253, 248, .92); --lb-control-fg: #1a1814; --lb-control-hover: #fff; --lb-accent: #0c6a52; --lb-shadow: 0 12px 40px rgba(26, 24, 20, .18); }
+html[data-theme="light"] { --lb-scrim: rgba(42, 36, 28, .48); --lb-fg: #1a1814; --lb-frame: #fffdf8; --lb-border: rgba(26, 24, 20, .16); --lb-control-bg: rgba(255, 253, 248, .96); --lb-control-fg: #1a1814; --lb-control-hover: #fff; --lb-accent: #0c6a52; --lb-shadow: 0 12px 40px rgba(26, 24, 20, .22); }
 `;
 
 export function lightboxMarkup(locale: Locale): string {
 	return `<dialog id="archive-lightbox" class="archive-lightbox" aria-modal="true" aria-labelledby="archive-lightbox-title">
   <div class="archive-lightbox-backdrop" data-lightbox-dismiss>
     <h2 id="archive-lightbox-title" class="archive-lightbox-sr">${escapeHtml(t(locale, 'lightboxDialog'))}</h2>
-    <button type="button" class="archive-lightbox-close" data-lightbox-close>${escapeHtml(t(locale, 'lightboxClose'))}</button>
     <div class="archive-lightbox-figure">
+      <button type="button" class="archive-lightbox-close" data-lightbox-close>${escapeHtml(t(locale, 'lightboxClose'))}</button>
       <button type="button" class="archive-lightbox-prev" data-lightbox-prev aria-label="${escapeHtml(t(locale, 'lightboxPrev'))}">‹</button>
       <img class="archive-lightbox-img" alt="">
       <button type="button" class="archive-lightbox-next" data-lightbox-next aria-label="${escapeHtml(t(locale, 'lightboxNext'))}">›</button>
