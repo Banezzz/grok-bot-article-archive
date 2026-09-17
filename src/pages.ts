@@ -12,6 +12,7 @@ import {
 	type MessageKey,
 	type Theme,
 } from './i18n';
+import { FOLDER_PICKER_SCRIPT, FOLDER_PICKER_STYLE, folderPickerMarkup, folderPickerStyleTag } from './folder-picker';
 import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
 import type { ArticleView, TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
@@ -73,11 +74,6 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 12px; }
 .star { min-width: 2.4rem; justify-content: center; }
 .star.on { border-color: color-mix(in srgb, #d4a017 55%, var(--border)); color: #b8860b; background: color-mix(in srgb, #d4a017 10%, var(--card)); }
-.folder-picker { font-size: 0.85rem; }
-.folder-picker summary { cursor: pointer; color: var(--muted); }
-.folder-picker form { display: grid; gap: 6px; margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); min-width: 200px; }
-.folder-picker label { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 0.85rem; }
-.folder-picker input[type=checkbox] { width: auto; margin: 0; }
 .folder-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .folder-card { display: grid; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
 .folder-card h2 { margin: 0; font-size: 1.08rem; letter-spacing: -0.02em; }
@@ -152,13 +148,14 @@ function layout(title: string, body: string, chrome: Chrome): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>${escapeHtml(title)}</title>
-  <style>${CHROME_STYLE}${LIGHTBOX_STYLE}</style>
+  <style>${CHROME_STYLE}${FOLDER_PICKER_STYLE}${LIGHTBOX_STYLE}</style>
   ${LANG_BOOTSTRAP}
   ${THEME_BOOTSTRAP}
 </head>
 <body>
 ${body}
 ${lightboxMarkup(chrome.locale)}
+${FOLDER_PICKER_SCRIPT}
 ${LIGHTBOX_SCRIPT}
 </body>
 </html>`;
@@ -378,25 +375,11 @@ export type ListPageModel = {
 };
 
 function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: string, locale: Locale): string {
-	const memberIds = new Set(article.folders.map((folder) => folder.id));
 	const starLabel = article.starred ? t(locale, 'unstar') : t(locale, 'star');
 	const picker =
 		folders.length === 0
 			? `<a class="btn ghost" href="/folders">${escapeHtml(t(locale, 'createFirstFolder'))}</a>`
-			: `<details class="folder-picker">
-        <summary>${escapeHtml(t(locale, 'addToFolders'))}</summary>
-        <form method="post" action="/folders/membership">
-          <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
-          <input type="hidden" name="next" value="${escapeHtml(nextPath)}">
-          ${folders
-						.map(
-							(folder) =>
-								`<label><input type="checkbox" name="folder_id" value="${escapeHtml(folder.id)}"${memberIds.has(folder.id) ? ' checked' : ''}>${escapeHtml(folder.name)}</label>`,
-						)
-						.join('')}
-          <button type="submit">${escapeHtml(t(locale, 'saveFolders'))}</button>
-        </form>
-      </details>`;
+			: folderPickerMarkup(article, folders, nextPath, locale, 'page');
 	return `<div class="card-tools">
     <form method="post" action="/star">
       <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
@@ -727,20 +710,10 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
     <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
     <button type="submit" style="appearance:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:${article.starred ? '#f5d76e' : '#f4f1ea'};border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${article.starred ? '★' : '☆'} ${escapeHtml(starLabel)}</button>
   </form>`;
-	const memberIds = new Set(article.folders.map((folder) => folder.id));
 	const folderForm =
 		folders.length === 0
 			? `<a href="/folders" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'createFirstFolder'))}</a>`
-			: `<form method="post" action="/folders/membership" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0">
-    <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
-    <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
-    <label style="display:flex;gap:6px;align-items:center;margin:0">${escapeHtml(t(locale, 'addToFolders'))}
-      <select name="folder_id" multiple size="${Math.min(folders.length, 4)}" style="max-width:16rem;background:#221e1a;color:#f4f1ea;border:1px solid rgba(255,255,255,.22);border-radius:6px">
-        ${folders.map((folder) => `<option value="${escapeHtml(folder.id)}"${memberIds.has(folder.id) ? ' selected' : ''}>${escapeHtml(folder.name)}</option>`).join('')}
-      </select>
-    </label>
-    <button type="submit" style="appearance:none;border:0;background:#9fe0c4;color:#12211b;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${escapeHtml(t(locale, 'saveFolders'))}</button>
-  </form>`;
+			: folderPickerMarkup(article, folders, articlePath, locale, 'chrome');
 	return `<nav data-archive-chrome style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
   <a href="/" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'backArchive'))}</a>
   <span style="flex:1;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(article.title)}</span>
@@ -765,12 +738,14 @@ export function injectArchiveChrome(htmlResponse: Response, article: ArticleView
 		})
 		.on('head', {
 			element(element) {
+				element.append(folderPickerStyleTag(), { html: true });
 				element.append(lightboxStyleTag(), { html: true });
 			},
 		})
 		.on('body', {
 			element(element) {
 				element.prepend(archiveBar(article, folders, chrome), { html: true });
+				element.append(FOLDER_PICKER_SCRIPT, { html: true });
 				element.append(lightbox, { html: true });
 			},
 		})
