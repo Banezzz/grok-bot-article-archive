@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{{TITLE}}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1c1916;
+      --muted: #625b52;
+      --border: #e4dfd6;
+      --bg: #f6f4ef;
+      --panel: #fffdf9;
+      --link: #155e75;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #f3efe8;
+        --muted: #b8afa4;
+        --border: #3a342d;
+        --bg: #161411;
+        --panel: #211e1a;
+        --link: #8bd5e8;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--fg);
+      background: var(--bg);
+      font: 16px/1.75 system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif;
+    }
+    main { width: min(760px, calc(100% - 32px)); margin: 0 auto; padding: 36px 0 72px; }
+    header.meta { margin-bottom: 30px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+    header.meta h1 { margin: 0 0 10px; font-size: clamp(1.6rem, 4vw, 2.15rem); line-height: 1.3; }
+    header.meta p { margin: 5px 0; color: var(--muted); font-size: 0.93rem; }
+    a { color: var(--link); }
+    article p { margin: 1.1em 0; }
+    article h2, article h3 { line-height: 1.35; margin-top: 1.8em; }
+    blockquote { margin: 1.4em 0; padding: 0.2em 1em; border-left: 3px solid var(--border); color: var(--muted); }
+    pre { overflow-x: auto; padding: 14px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    figure { margin: 1.7em 0; }
+    figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; }
+    figcaption { margin-top: 8px; color: var(--muted); font-size: 0.88rem; text-align: center; }
+    .gap { margin: 1.25em 0; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="meta">
+      <h1>{{TITLE}}</h1>
+      <p>{{AUTHOR}} · <time datetime="{{PUBLISHED_AT}}">{{PUBLISHED_AT_LABEL}}</time></p>
+      <p><a href="{{SOURCE_URL}}" rel="noreferrer noopener">原文</a></p>
+    </header>
+
+    <article lang="zh">
+      <!-- Repeat paragraphs, headings, lists, quotations, and code blocks in source order. -->
+      <p>{{PARAGRAPH}}</p>
+
+      <figure>
+        <img src="{{IMAGE_DATA_URI}}" alt="{{IMAGE_ALT}}">
+        <figcaption>{{IMAGE_CAPTION}}</figcaption>
+      </figure>
+
+      <!-- If an image failed after documented retries, insert a visible .gap notice here. -->
+      <p class="gap" role="note">{{GAP_NOTICE_OR_REMOVE_THIS_PARAGRAPH}}</p>
+    </article>
+  </main>
+</body>
+</html>

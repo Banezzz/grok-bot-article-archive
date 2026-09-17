@@ -84,6 +84,9 @@ Successful uploads return `{ "ok": true, "slug", "url", "tags", "summary_zh", "t
 
 ## Deploy to Cloudflare (Free plan)
 
+Companion walkthrough (same Free-plan path, more checklist detail): [docs/DEPLOY.md](docs/DEPLOY.md).
+
+
 Replace every placeholder in `wrangler.jsonc` with values from *your* account. The committed values (`0000…`, `replace-me-d1-database`, `replace-me-r2-bucket`) are dummy stand-ins so Wrangler can validate the file. Never paste another site's host, account ID, database ID, or bucket name into this repo.
 
 ### 1. Create R2 and D1
@@ -163,6 +166,9 @@ npm run typecheck
 D1 migration `migrations/0004_folders_stars.sql` creates `folders`, `folder_articles`, and `article_stars`.
 
 ## Archive bot
+
+To clone this pipeline on another assistant, paste [docs/BOT_HANDOFF.md](docs/BOT_HANDOFF.md) into the bot, attach [skills/archive-article-images/SKILL.md](skills/archive-article-images/SKILL.md), and use the shells under `templates/` (notes in [docs/HTML_TEMPLATES.md](docs/HTML_TEMPLATES.md)). Full JSON contract: [docs/UPLOAD_API.md](docs/UPLOAD_API.md). Set `ARCHIVE_URL` and the upload token at runtime only.
+
 
 The intended writer is a local or scheduled bot that POSTs captured article HTML.
 
@@ -270,6 +276,9 @@ Access is an upgrade, not a requirement. It is not available on every Free-plan 
 src/            Worker entry, auth, D1/R2 store, HTML pages, injected image lightbox
 migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars)
 scripts/        Example upload curl
+docs/           Deploy guide, bot handoff, upload API, HTML template notes
+skills/         Packaged archive skills (image crawl)
+templates/      Reusable archive HTML shells (bilingual + Chinese-only)
 wrangler.jsonc  Bindings with placeholders, compatibility date, observability
 ```
 

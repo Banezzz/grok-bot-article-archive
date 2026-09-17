@@ -1,0 +1,12 @@
+bot-kit-out manifest
+
+Files:
+- docs/DEPLOY.md
+- docs/BOT_HANDOFF.md
+- docs/UPLOAD_API.md
+- docs/HTML_TEMPLATES.md
+- skills/archive-article-images/SKILL.md
+- templates/article.bilingual.html
+- templates/article.zh.html
+- README_SNIPPET.md
+- MANIFEST.txt
