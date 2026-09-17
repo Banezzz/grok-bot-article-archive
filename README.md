@@ -16,6 +16,8 @@ There is no public registration. The first admin is created at `/setup`. Each us
 | `GET /setup` · `POST /setup` | Public only while `users` is empty | Create the first admin; then 404 |
 | `GET /login` · `POST /login` | Public | Username + password; HttpOnly session cookie |
 | `POST /logout` | Public | Clears the session cookie |
+| `GET /lang` | Public | Set UI language cookie (`?set=zh` or `en`, plus `next=`) |
+| `GET /theme` | Public | Set UI theme cookie (`?set=light` or `dark`, plus `next=`). Unset follows `prefers-color-scheme` |
 | `GET /` | Session | Article list. Query: `?q=`, `?tag=`, `?folder=`, `?starred=1`, admin `?mine=1`. Filters combine. |
 | `GET /folders` · `POST /folders` | Session | Create folders; rename / delete / reorder via `POST /folders/:id/{rename,delete,move}` |
 | `POST /folders/membership` | Session | Set which of *your* folders contain an article (`folder_id` checkboxes, `slug`, `next`) |

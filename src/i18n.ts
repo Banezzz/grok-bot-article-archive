@@ -1,5 +1,7 @@
 export const LANG_COOKIE = 'archive_lang';
+export const THEME_COOKIE = 'archive_theme';
 export type Locale = 'zh' | 'en';
+export type Theme = 'light' | 'dark';
 
 export type MessageKey = keyof typeof ZH;
 
@@ -66,6 +68,11 @@ const ZH = {
 	noFolders: '还没有文件夹。',
 	source: '原文',
 	backArchive: '← 归档',
+	crumbAria: '当前位置',
+	crumbArchive: '归档',
+	themeToggle: '外观',
+	themeLight: '浅色',
+	themeDark: '深色',
 	downloadHtml: '下载 HTML',
 	settingsHeading: '设置',
 	settingsLead: '上传令牌用于把文章记到你的名下。',
@@ -180,6 +187,11 @@ const EN: Record<MessageKey, string> = {
 	noFolders: 'No folders yet.',
 	source: 'Source',
 	backArchive: '← Archive',
+	crumbAria: 'Breadcrumb',
+	crumbArchive: 'Archive',
+	themeToggle: 'Appearance',
+	themeLight: 'Light',
+	themeDark: 'Dark',
 	downloadHtml: 'Download HTML',
 	settingsHeading: 'Settings',
 	settingsLead: 'Your upload token identifies articles as yours.',
@@ -322,13 +334,15 @@ export function langSwitchHref(locale: Locale, currentPath: string): string {
 	return langSetHref(locale === 'zh' ? 'en' : 'zh', currentPath);
 }
 
-export const LANG_BOOTSTRAP = `<script>
+function prefsBootstrap(key: string, values: readonly string[]): string {
+	const allowed = values.map((value) => `'${value}'`).join(' || stored === ');
+	return `<script>
 (function () {
-  var key = '${LANG_COOKIE}';
+  var key = '${key}';
   try {
     var stored = localStorage.getItem(key);
     var cookie = document.cookie.split('; ').find(function (part) { return part.indexOf(key + '=') === 0; });
-    if ((stored === 'zh' || stored === 'en') && !cookie) {
+    if ((stored === ${allowed}) && !cookie) {
       document.cookie = key + '=' + stored + '; Path=/; SameSite=Lax; Max-Age=31536000';
       location.reload();
       return;
@@ -337,5 +351,56 @@ export const LANG_BOOTSTRAP = `<script>
       localStorage.setItem(key, cookie.slice(key.length + 1));
     }
   } catch (err) {}
+})();
+</script>`;
+}
+
+export const LANG_BOOTSTRAP = prefsBootstrap(LANG_COOKIE, ['zh', 'en']);
+
+export function parseTheme(request: Request): Theme | null {
+	const header = request.headers.get('cookie') ?? '';
+	for (const part of header.split(';')) {
+		const trimmed = part.trim();
+		if (trimmed === `${THEME_COOKIE}=light`) {
+			return 'light';
+		}
+		if (trimmed === `${THEME_COOKIE}=dark`) {
+			return 'dark';
+		}
+	}
+	return null;
+}
+
+export function themeCookie(theme: Theme, requestUrl: URL): string {
+	const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
+	return `${THEME_COOKIE}=${theme}; Path=/; SameSite=Lax; Max-Age=31536000${secure}`;
+}
+
+export function parseThemeParam(value: string | null): Theme | null {
+	if (value === 'light' || value === 'dark') {
+		return value;
+	}
+	return null;
+}
+
+export function themeSetHref(theme: Theme, currentPath: string): string {
+	const params = new URLSearchParams({ set: theme, next: currentPath || '/' });
+	return `/theme?${params.toString()}`;
+}
+
+export const THEME_BOOTSTRAP = `${prefsBootstrap(THEME_COOKIE, ['light', 'dark'])}
+<script>
+(function () {
+  var root = document.documentElement;
+  if (root.getAttribute('data-theme')) {
+    return;
+  }
+  var dark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  var preferred = dark ? 'dark' : 'light';
+  var active = document.querySelector('.theme-switch a[data-theme-set="' + preferred + '"]');
+  if (active) {
+    active.classList.add('active');
+    active.setAttribute('aria-current', 'true');
+  }
 })();
 </script>`;

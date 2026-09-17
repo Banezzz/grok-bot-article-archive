@@ -401,4 +401,53 @@ describe('article archive worker', () => {
 		expect(readerHtml).not.toContain('admin-star');
 		expect(readerHtml).toContain('No starred articles yet.');
 	});
+
+	it('sets a theme cookie and marks the document on later pages', async () => {
+		const { cookie } = await setupAdmin();
+		const setTheme = await SELF.fetch('http://example.com/theme?set=dark&next=/settings', { redirect: 'manual' });
+		expect(setTheme.status).toBe(302);
+		expect(setTheme.headers.get('location')).toContain('/settings');
+		const themeCookie = (setTheme.headers.getSetCookie?.() ?? []).find((value) => value.startsWith('archive_theme='));
+		expect(themeCookie).toMatch(/^archive_theme=dark\b/);
+
+		const settings = await SELF.fetch('http://example.com/settings', {
+			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },
+		});
+		const html = await settings.text();
+		expect(html).toContain('data-theme="dark"');
+		expect(html).toContain('theme-switch');
+		expect(html).toContain('Light');
+		expect(html).toContain('Dark');
+		expect(html).toContain('href="/theme?set=light&amp;next=%2Fsettings"');
+	});
+
+	it('shows a back-to-archive trail on folders, settings, and users', async () => {
+		const { cookie } = await setupAdmin();
+		const headers = { cookie: `${cookie}; archive_lang=en` };
+
+		const folders = await (await SELF.fetch('http://example.com/folders', { headers })).text();
+		expect(folders).toContain('← Archive');
+		expect(folders).toContain('href="/"');
+		expect(folders).toContain('aria-current="page">Folders');
+
+		const settings = await (await SELF.fetch('http://example.com/settings', { headers })).text();
+		expect(settings).toContain('← Archive');
+		expect(settings).toContain('aria-current="page">Settings');
+
+		const users = await (await SELF.fetch('http://example.com/admin/users', { headers })).text();
+		expect(users).toContain('← Archive');
+		expect(users).toContain('aria-current="page">Users');
+	});
+
+	it('keeps a back-to-archive control on article chrome', async () => {
+		const { cookie, token } = await setupAdmin();
+		expect((await upload(token, { slug: 'chrome-note', title: 'Chrome note' })).status).toBe(200);
+		const page = await SELF.fetch('http://example.com/a/chrome-note', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		const html = await page.text();
+		expect(html).toContain('← Archive');
+		expect(html).toContain('href="/"');
+		expect(html).toContain('/theme?set=light');
+	});
 });
