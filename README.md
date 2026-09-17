@@ -18,13 +18,13 @@ There is no public registration. The first admin is created at `/setup`. Each us
 | `POST /logout` | Public | Clears the session cookie |
 | `GET /lang` | Public | Set UI language cookie (`?set=zh` or `en`, plus `next=`) |
 | `GET /theme` | Public | Set UI theme cookie (`?set=light` or `dark`, plus `next=`). Unset follows `prefers-color-scheme` |
-| `GET /` | Session | Article list. Query: `?q=`, `?tag=`, `?folder=`, `?starred=1`, admin `?mine=1`. Filters combine. |
+| `GET /` | Session | Article list. Query: `?q=`, `?tag=`, `?folder=`, `?starred=1`, admin `?mine=1`. Filters combine. Thumbnails open the lightbox; titles open the article. |
 | `GET /folders` · `POST /folders` | Session | Create folders; rename / delete / reorder via `POST /folders/:id/{rename,delete,move}` |
 | `POST /folders/membership` | Session | Set which of *your* folders contain an article (`folder_id` checkboxes, `slug`, `next`) |
 | `POST /star` | Session | Toggle your star on an article (`slug`, `next`) |
 | `GET /settings` | Session | Upload token prefix; rotate and copy once |
 | `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens |
-| `GET /a/:slug` | Session | Stored HTML (404 if not owner and not admin). Chrome includes HTML download, star, folders. |
+| `GET /a/:slug` | Session | Stored HTML (404 if not owner and not admin). Chrome includes HTML download, star, folders, and a click-to-zoom image lightbox. Stored R2 HTML is not rewritten. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
 | `GET /thumb/:slug` | Session | Thumbnail (same visibility) |
 | `GET /api/articles` | Session | Metadata JSON; same list filters as `/` |
@@ -266,7 +266,7 @@ Access is an upgrade, not a requirement. It is not available on every Free-plan 
 ## Project layout
 
 ```
-src/            Worker entry, auth, D1/R2 store, HTML pages
+src/            Worker entry, auth, D1/R2 store, HTML pages, injected image lightbox
 migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars)
 scripts/        Example upload curl
 wrangler.jsonc  Bindings with placeholders, compatibility date, observability

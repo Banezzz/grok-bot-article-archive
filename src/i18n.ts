@@ -122,6 +122,11 @@ const ZH = {
 	folderNameTooLong: '文件夹名称过长。',
 	folderNameTaken: '已有同名文件夹。',
 	folderNotFound: '找不到该文件夹。',
+	lightboxClose: '关闭',
+	lightboxDialog: '图片预览',
+	lightboxPrev: '上一张',
+	lightboxNext: '下一张',
+	lightboxOpen: '查看大图',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -241,6 +246,11 @@ const EN: Record<MessageKey, string> = {
 	folderNameTooLong: 'Folder name is too long.',
 	folderNameTaken: 'A folder with that name already exists.',
 	folderNotFound: 'Folder not found',
+	lightboxClose: 'Close',
+	lightboxDialog: 'Image preview',
+	lightboxPrev: 'Previous image',
+	lightboxNext: 'Next image',
+	lightboxOpen: 'View larger image',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
