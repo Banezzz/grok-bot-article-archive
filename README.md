@@ -18,7 +18,7 @@ There is no public registration. The first admin is created at `/setup`. Each us
 | `POST /logout` | Public | Clears the session cookie |
 | `GET /lang` | Public | Set UI language cookie (`?set=zh` or `en`, plus `next=`) |
 | `GET /theme` | Public | Set UI theme cookie (`?set=light` or `dark`, plus `next=`). Unset follows `prefers-color-scheme` |
-| `GET /` | Session | Article list. Query: `?q=`, `?tag=`, `?folder=`, `?starred=1`, admin `?mine=1`. Filters combine. Thumbnails open the lightbox; titles open the article. |
+| `GET /` | Session | Article list. Query: `?q=`, `?tag=`, `?folder=`, `?starred=1`, `?sort=joined` or `published`, admin `?mine=1`. Filters combine and keep `sort` in the URL. Default `joined` is newest archived first (`created_at`); `published` uses `published_at` (then `created_at`). An explicit `sort` is also stored in the `archive_sort` cookie. Thumbnails open the lightbox; titles open the article. |
 | `GET /folders` · `POST /folders` | Session | Create folders; rename / delete / reorder via `POST /folders/:id/{rename,delete,move}` |
 | `POST /folders/membership` | Session | Set which of *your* folders contain an article (`folder_id` checkboxes, `slug`, `next`) |
 | `POST /star` | Session | Toggle your star on an article (`slug`, `next`) |
@@ -238,7 +238,7 @@ curl -sS -X POST "${ARCHIVE_URL}/api/upload" \
   }'
 ```
 
-The list is newest first (`published_at`, then `created_at`). Search covers title, author, Chinese summary, source URL, and tag names. Click a tag chip to filter; click it again to clear.
+The list defaults to newest archived first (`sort=joined`, `articles.created_at`). Switch to article time with `sort=published` (`published_at`, falling back to `created_at` when it is null). Aliases such as `created` / `created_at` and `article` / `published_at` are accepted. Newest-first only. Search covers title, author, Chinese summary, source URL, and tag names. Click a tag chip to filter; click it again to clear. The sort control on the home page keeps the choice in the URL with other filters and remembers it in a cookie.
 
 `scripts/upload-example.sh` is a copy-paste starting point:
 

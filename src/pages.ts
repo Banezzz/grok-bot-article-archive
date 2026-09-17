@@ -14,7 +14,7 @@ import {
 } from './i18n';
 import { FOLDER_PICKER_SCRIPT, FOLDER_PICKER_STYLE, folderPickerMarkup, folderPickerStyleTag } from './folder-picker';
 import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
-import type { ArticleView, TagCount } from './store';
+import type { ArticleSort, ArticleView, TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
 
@@ -68,6 +68,8 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .chip:hover { border-color: var(--accent); color: inherit; }
 .chip.active { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
 .chip .count { opacity: 0.68; font-variant-numeric: tabular-nums; font-size: 0.75rem; }
+.list-sort { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px; }
+.list-sort-label { color: var(--muted); font-size: 0.82rem; font-weight: 550; }
 .list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .card { display: grid; grid-template-columns: 132px 1fr; gap: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); transition: border-color .15s ease; }
 .card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
@@ -339,6 +341,7 @@ export type ListFilters = {
 	mine?: boolean;
 	folder?: string | null;
 	starred?: boolean;
+	sort?: ArticleSort;
 };
 
 export function listHref(filters: ListFilters): string {
@@ -358,6 +361,9 @@ export function listHref(filters: ListFilters): string {
 	if (filters.starred) {
 		params.set('starred', '1');
 	}
+	if (filters.sort) {
+		params.set('sort', filters.sort);
+	}
 	const qs = params.toString();
 	return qs ? `/?${qs}` : '/';
 }
@@ -372,6 +378,7 @@ export type ListPageModel = {
 	starred: boolean;
 	viewer: SessionUser;
 	mine: boolean;
+	sort: ArticleSort;
 };
 
 function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: string, locale: Locale): string {
@@ -392,8 +399,8 @@ function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: 
 
 export function listPage(chrome: Chrome, model: ListPageModel): Response {
 	const locale = chrome.locale;
-	const { articles, tags, folders, query, activeTag, activeFolderId, starred, viewer, mine } = model;
-	const filters: ListFilters = { q: query, tag: activeTag, mine, folder: activeFolderId, starred };
+	const { articles, tags, folders, query, activeTag, activeFolderId, starred, viewer, mine, sort } = model;
+	const filters: ListFilters = { q: query, tag: activeTag, mine, folder: activeFolderId, starred, sort };
 	const current = listHref(filters);
 	const hrefFor = (patch: Partial<ListFilters>) => listHref({ ...filters, ...patch });
 
@@ -503,9 +510,22 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
       ${activeFolderId ? `<input type="hidden" name="folder" value="${escapeHtml(activeFolderId)}">` : ''}
       ${starred ? '<input type="hidden" name="starred" value="1">' : ''}
       ${mine ? '<input type="hidden" name="mine" value="1">' : ''}
+      <input type="hidden" name="sort" value="${escapeHtml(sort)}">
       <input type="search" name="q" value="${escapeHtml(query)}" placeholder="${escapeHtml(t(locale, 'searchPlaceholder'))}" aria-label="${escapeHtml(t(locale, 'searchAria'))}">
       <button type="submit">${escapeHtml(t(locale, 'search'))}</button>
     </form>
+    <div class="list-sort">
+      <span class="list-sort-label">${escapeHtml(t(locale, 'sortAria'))}</span>
+      ${segSwitch(
+				chrome,
+				'sortAria',
+				[
+					{ value: 'joined', href: hrefFor({ sort: 'joined' }), label: t(locale, 'sortJoined'), active: sort === 'joined' },
+					{ value: 'published', href: hrefFor({ sort: 'published' }), label: t(locale, 'sortPublished'), active: sort === 'published' },
+				],
+				'sort-switch',
+			)}
+    </div>
     ${folderChips}
     ${chips}
     ${cards}
