@@ -1,0 +1,23 @@
+{
+	"name": "article-archive",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Private personal article HTML archive on Cloudflare Workers, R2, and D1.",
+	"scripts": {
+		"dev": "wrangler dev --ip 127.0.0.1 --port 45454",
+		"start": "wrangler dev --ip 127.0.0.1 --port 45454",
+		"deploy": "wrangler deploy",
+		"db:migrate:local": "wrangler d1 migrations apply DB --local",
+		"db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+		"types": "wrangler types",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest",
+		"cf-typegen": "wrangler types"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "^1.0.0",
+		"typescript": "^5.5.2",
+		"vitest": "~4.1.0",
+		"wrangler": "^4"
+	}
+}

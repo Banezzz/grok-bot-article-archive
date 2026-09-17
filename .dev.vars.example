@@ -1,0 +1,11 @@
+# Local-only dummy secrets for `wrangler dev`.
+# Copy to `.dev.vars` and keep dummy values, or replace them with your own local-only strings.
+# Never commit `.dev.vars`. In production, set secrets with `wrangler secret put`.
+
+# SITE_ACCESS_SECRET signs session cookies (required).
+# UPLOAD_TOKEN is legacy only while no per-user tokens exist; ignored after /setup.
+# SITE_PASSWORD is unused after accounts exist.
+
+SITE_ACCESS_SECRET=dummy-local-hmac-secret-not-for-production
+UPLOAD_TOKEN=dummy-local-legacy-upload-token
+SITE_PASSWORD=dummy-local-unused-password
