@@ -450,4 +450,70 @@ describe('article archive worker', () => {
 		expect(html).toContain('href="/"');
 		expect(html).toContain('/theme?set=light');
 	});
+
+	it('injects an image lightbox on article and list pages without rewriting stored HTML', async () => {
+		const { cookie, token } = await setupAdmin();
+		const png =
+			'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+		const storedHtml =
+			'<!doctype html><html><head><title>Photo note</title></head><body><h1>Photo note</h1><p><img src="' +
+			png +
+			'" alt="Garden photo" width="640" height="400"></p></body></html>';
+		expect(
+			(
+				await upload(token, {
+					slug: 'photo-note',
+					title: 'Photo note',
+					html: storedHtml,
+					thumbnail_base64: png,
+				})
+			).status,
+		).toBe(200);
+
+		const object = await env.ARTICLES.get('articles/photo-note.html');
+		expect(object).toBeTruthy();
+		const raw = await object!.text();
+		expect(raw).toBe(storedHtml);
+		expect(raw).not.toContain('archive-lightbox');
+
+		const download = await SELF.fetch('http://example.com/a/photo-note/download', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		expect(download.status).toBe(200);
+		const downloaded = await download.text();
+		expect(downloaded).toBe(storedHtml);
+		expect(downloaded).not.toContain('archive-lightbox');
+
+		const page = await SELF.fetch('http://example.com/a/photo-note', {
+			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },
+		});
+		expect(page.status).toBe(200);
+		const html = await page.text();
+		expect(html).toContain('id="archive-lightbox"');
+		expect(html).toContain('aria-modal="true"');
+		expect(html).toContain('aria-labelledby="archive-lightbox-title"');
+		expect(html).toContain('Image preview');
+		expect(html).toContain('>Close<');
+		expect(html).toContain('data-theme="dark"');
+		expect(html).toContain('data-archive-lightbox');
+		expect(html).toContain('Garden photo');
+		expect(html).toContain('archive-lightbox-close');
+
+		const zhPage = await SELF.fetch('http://example.com/a/photo-note', {
+			headers: { cookie: `${cookie}; archive_lang=zh` },
+		});
+		const zhHtml = await zhPage.text();
+		expect(zhHtml).toContain('图片预览');
+		expect(zhHtml).toContain('>关闭<');
+
+		const list = await SELF.fetch('http://example.com/', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		const listHtml = await list.text();
+		expect(listHtml).toContain('id="archive-lightbox"');
+		expect(listHtml).toContain('class="thumb-zoom"');
+		expect(listHtml).toContain('View larger image');
+		expect(listHtml).toContain(`/thumb/photo-note`);
+		expect(listHtml).toContain('href="/a/photo-note"');
+	});
 });

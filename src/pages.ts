@@ -12,6 +12,7 @@ import {
 	type MessageKey,
 	type Theme,
 } from './i18n';
+import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
 import type { ArticleView, TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
@@ -89,6 +90,7 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .add-folder input { margin: 0; }
 .thumb, .thumb-fallback { width: 132px; height: 88px; border-radius: 10px; object-fit: cover; background: color-mix(in srgb, var(--border) 70%, var(--card)); }
 .thumb-fallback { display: block; }
+.thumb-zoom .thumb { width: 132px; height: 88px; }
 .card h2 { margin: 0 0 6px; font-size: 1.08rem; letter-spacing: -0.02em; }
 .card h2 a { color: inherit; text-decoration: none; }
 .card h2 a:hover { color: var(--accent); }
@@ -136,7 +138,7 @@ tr:last-child td { border-bottom: 0; }
   main { width: min(920px, calc(100% - 28px)); padding-top: 20px; }
   header.site { gap: 14px; }
   .card { grid-template-columns: 1fr; }
-  .thumb, .thumb-fallback { width: 100%; height: 168px; }
+  .thumb, .thumb-fallback, .thumb-zoom, .thumb-zoom .thumb { width: 100%; height: 168px; }
   .add-user, .add-folder, .rename-row { grid-template-columns: 1fr; }
 }
 `;
@@ -150,12 +152,14 @@ function layout(title: string, body: string, chrome: Chrome): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
   <title>${escapeHtml(title)}</title>
-  <style>${CHROME_STYLE}</style>
+  <style>${CHROME_STYLE}${LIGHTBOX_STYLE}</style>
   ${LANG_BOOTSTRAP}
   ${THEME_BOOTSTRAP}
 </head>
 <body>
 ${body}
+${lightboxMarkup(chrome.locale)}
+${LIGHTBOX_SCRIPT}
 </body>
 </html>`;
 }
@@ -452,7 +456,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
 						const source = safeHttpUrl(article.source_url);
 						const when = formatUiDate(article.published_at ?? article.created_at, locale);
 						const thumb = article.thumbnail_key
-							? `<img class="thumb" src="/thumb/${encodeURIComponent(article.slug)}" alt="" width="132" height="88">`
+							? `<button type="button" class="thumb-zoom" aria-label="${escapeHtml(t(locale, 'lightboxOpen'))}"><img class="thumb" src="/thumb/${encodeURIComponent(article.slug)}" alt="" width="132" height="88"></button>`
 							: `<span class="thumb-fallback" aria-hidden="true"></span>`;
 						const summary = article.summary_zh ? `<p class="summary" lang="zh">${escapeHtml(article.summary_zh)}</p>` : '';
 						const pills =
@@ -750,10 +754,24 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 }
 
 export function injectArchiveChrome(htmlResponse: Response, article: ArticleView, folders: FolderSummary[], chrome: Chrome): Response {
+	const lightbox = lightboxInjection(chrome.locale);
 	return new HTMLRewriter()
+		.on('html', {
+			element(element) {
+				if (chrome.theme) {
+					element.setAttribute('data-theme', chrome.theme);
+				}
+			},
+		})
+		.on('head', {
+			element(element) {
+				element.append(lightboxStyleTag(), { html: true });
+			},
+		})
 		.on('body', {
 			element(element) {
 				element.prepend(archiveBar(article, folders, chrome), { html: true });
+				element.append(lightbox, { html: true });
 			},
 		})
 		.transform(htmlResponse);
