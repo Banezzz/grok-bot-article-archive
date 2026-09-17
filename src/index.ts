@@ -21,8 +21,11 @@ import {
 	getArticleViewBySlug,
 	listArticles,
 	listTags,
+	parseArticleSort,
 	parseTagQuery,
 	parseUploadBody,
+	resolveArticleSort,
+	sortCookie,
 	upsertArticle,
 } from './store';
 import {
@@ -330,6 +333,7 @@ async function handleArticlesCollection(request: Request, env: Env, url: URL, se
 		folderId: folderId ?? undefined,
 		starred: starred || undefined,
 		viewerId: session.id,
+		sort: resolveArticleSort(request, url),
 	});
 	return json({ ok: true, articles: rows.map(articlePublic) });
 }
@@ -670,6 +674,8 @@ export default {
 				const activeTag = tags[0] ?? null;
 				const starred = url.searchParams.get('starred') === '1';
 				const activeFolderId = parseFolderQuery(url);
+				const requestedSort = parseArticleSort(url.searchParams.get('sort'));
+				const sort = resolveArticleSort(request, url);
 				const [rows, allTags, folders] = await Promise.all([
 					listArticles(env, {
 						q: q || undefined,
@@ -678,11 +684,12 @@ export default {
 						folderId: activeFolderId ?? undefined,
 						starred: starred || undefined,
 						viewerId: session!.id,
+						sort,
 					}),
 					listTags(env, ownerId),
 					listFolders(env, session!.id),
 				]);
-				return listPage(ui(request), {
+				const response = listPage(ui(request), {
 					articles: rows,
 					tags: allTags,
 					folders,
@@ -692,7 +699,12 @@ export default {
 					starred,
 					viewer: session!,
 					mine,
+					sort,
 				});
+				if (requestedSort) {
+					response.headers.append('set-cookie', sortCookie(requestedSort, url));
+				}
+				return response;
 			}
 
 			if (pathname === '/star') {

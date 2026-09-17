@@ -540,6 +540,103 @@ describe('article archive worker', () => {
 		expect(inboxOnly).toContain('multi-fold');
 	});
 
+	it('sorts the home list and JSON API by joined or published time', async () => {
+		const { cookie, token } = await setupAdmin();
+		expect(
+			(
+				await upload(token, {
+					slug: 'old-pub-new-join',
+					title: 'Old pub new join',
+					published_at: '2020-01-01T00:00:00.000Z',
+					tags: ['ai'],
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await upload(token, {
+					slug: 'new-pub-old-join',
+					title: 'New pub old join',
+					published_at: '2025-06-01T00:00:00.000Z',
+					tags: ['programming'],
+				})
+			).status,
+		).toBe(200);
+		expect((await upload(token, { slug: 'no-pub-mid-join', title: 'No pub mid join', tags: ['ai'] })).status).toBe(200);
+
+		await env.DB.prepare('UPDATE articles SET created_at = ? WHERE slug = ?').bind('2026-09-17T12:00:00.000Z', 'old-pub-new-join').run();
+		await env.DB.prepare('UPDATE articles SET created_at = ? WHERE slug = ?').bind('2024-01-01T12:00:00.000Z', 'new-pub-old-join').run();
+		await env.DB.prepare('UPDATE articles SET created_at = ?, published_at = NULL WHERE slug = ?')
+			.bind('2025-01-01T12:00:00.000Z', 'no-pub-mid-join')
+			.run();
+
+		const headers = { cookie: `${cookie}; archive_lang=en` };
+		const slugsOf = (body: { articles: Array<{ slug: string }> }) => body.articles.map((row) => row.slug);
+
+		const defaultList = (await (await SELF.fetch('http://example.com/api/articles', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(defaultList)).toEqual(['old-pub-new-join', 'no-pub-mid-join', 'new-pub-old-join']);
+
+		const joined = (await (await SELF.fetch('http://example.com/api/articles?sort=joined', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(joined)).toEqual(['old-pub-new-join', 'no-pub-mid-join', 'new-pub-old-join']);
+
+		const published = (await (await SELF.fetch('http://example.com/api/articles?sort=published', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(published)).toEqual(['new-pub-old-join', 'no-pub-mid-join', 'old-pub-new-join']);
+
+		const aliasJoined = (await (await SELF.fetch('http://example.com/api/articles?sort=created_at', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(aliasJoined)).toEqual(['old-pub-new-join', 'no-pub-mid-join', 'new-pub-old-join']);
+
+		const aliasPublished = (await (await SELF.fetch('http://example.com/api/articles?sort=published_at', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(aliasPublished)).toEqual(['new-pub-old-join', 'no-pub-mid-join', 'old-pub-new-join']);
+
+		const cookieSort = (await (
+			await SELF.fetch('http://example.com/api/articles', { headers: { cookie: `${cookie}; archive_sort=published` } })
+		).json()) as { articles: Array<{ slug: string }> };
+		expect(slugsOf(cookieSort)).toEqual(['new-pub-old-join', 'no-pub-mid-join', 'old-pub-new-join']);
+
+		const filtered = (await (
+			await SELF.fetch('http://example.com/api/articles?sort=published&tag=ai', { headers })
+		).json()) as { articles: Array<{ slug: string }> };
+		expect(slugsOf(filtered)).toEqual(['no-pub-mid-join', 'old-pub-new-join']);
+
+		const search = (await (await SELF.fetch('http://example.com/api/articles?sort=joined&q=Old+pub+new', { headers })).json()) as {
+			articles: Array<{ slug: string }>;
+		};
+		expect(slugsOf(search)).toEqual(['old-pub-new-join']);
+
+		const page = await SELF.fetch('http://example.com/?sort=published', { headers });
+		expect(page.status).toBe(200);
+		const html = await page.text();
+		expect(html).toContain('sort-switch');
+		expect(html).toContain('Join time');
+		expect(html).toContain('Article time');
+		expect(html).toContain('name="sort" value="published"');
+		expect(html).toContain('href="/?sort=joined"');
+		expect(html).toContain('href="/?tag=ai&amp;sort=published"');
+		const listed = [...html.matchAll(/class="card"[\s\S]*?href="\/a\/([^"]+)"/g)].map((match) => match[1]);
+		expect(listed).toEqual(['new-pub-old-join', 'no-pub-mid-join', 'old-pub-new-join']);
+		const setCookie = page.headers.getSetCookie?.() ?? [];
+		expect(setCookie.some((value) => value.startsWith('archive_sort=published'))).toBe(true);
+
+		const zhPage = await SELF.fetch('http://example.com/?sort=joined', {
+			headers: { cookie: `${cookie}; archive_lang=zh` },
+		});
+		const zhHtml = await zhPage.text();
+		expect(zhHtml).toContain('加入时间');
+		expect(zhHtml).toContain('文章时间');
+		const zhListed = [...zhHtml.matchAll(/class="card"[\s\S]*?href="\/a\/([^"]+)"/g)].map((match) => match[1]);
+		expect(zhListed).toEqual(['old-pub-new-join', 'no-pub-mid-join', 'new-pub-old-join']);
+	});
+
 	it('keeps a back-to-archive control on article chrome', async () => {
 		const { cookie, token } = await setupAdmin();
 		expect((await upload(token, { slug: 'chrome-note', title: 'Chrome note' })).status).toBe(200);

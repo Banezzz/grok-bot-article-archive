@@ -60,6 +60,8 @@ export type UploadInput = {
 	thumbnail_base64?: string;
 };
 
+export type ArticleSort = 'joined' | 'published';
+
 export type ListQuery = {
 	q?: string;
 	tags?: string[];
@@ -67,7 +69,56 @@ export type ListQuery = {
 	folderId?: string;
 	starred?: boolean;
 	viewerId?: string;
+	sort?: ArticleSort;
 };
+
+export const DEFAULT_ARTICLE_SORT: ArticleSort = 'joined';
+export const SORT_COOKIE = 'archive_sort';
+
+const JOINED_ALIASES = new Set(['joined', 'created', 'created_at', 'archived', 'archive']);
+const PUBLISHED_ALIASES = new Set(['published', 'article', 'published_at', 'article_time']);
+
+export function parseArticleSort(value: string | null | undefined): ArticleSort | null {
+	if (!value) {
+		return null;
+	}
+	const normalized = value.trim().toLowerCase();
+	if (JOINED_ALIASES.has(normalized)) {
+		return 'joined';
+	}
+	if (PUBLISHED_ALIASES.has(normalized)) {
+		return 'published';
+	}
+	return null;
+}
+
+export function parseSortCookie(request: Request): ArticleSort | null {
+	const header = request.headers.get('cookie') ?? '';
+	for (const part of header.split(';')) {
+		const trimmed = part.trim();
+		const prefix = `${SORT_COOKIE}=`;
+		if (trimmed.startsWith(prefix)) {
+			return parseArticleSort(trimmed.slice(prefix.length));
+		}
+	}
+	return null;
+}
+
+export function sortCookie(sort: ArticleSort, requestUrl: URL): string {
+	const secure = requestUrl.protocol === 'https:' ? '; Secure' : '';
+	return `${SORT_COOKIE}=${sort}; Path=/; SameSite=Lax; Max-Age=31536000${secure}`;
+}
+
+export function resolveArticleSort(request: Request, url: URL = new URL(request.url)): ArticleSort {
+	return parseArticleSort(url.searchParams.get('sort')) ?? parseSortCookie(request) ?? DEFAULT_ARTICLE_SORT;
+}
+
+function orderByClause(sort: ArticleSort): string {
+	if (sort === 'published') {
+		return 'ORDER BY datetime(COALESCE(articles.published_at, articles.created_at)) DESC, articles.created_at DESC';
+	}
+	return 'ORDER BY datetime(articles.created_at) DESC, articles.id DESC';
+}
 
 const TITLE_MAX = 500;
 const URL_MAX = 2048;
@@ -276,7 +327,7 @@ async function attachViewerState(env: Env, rows: ArticleView[], viewerId?: strin
 }
 
 export async function listArticles(env: Env, query: ListQuery = {}): Promise<ArticleView[]> {
-	const order = 'ORDER BY datetime(COALESCE(articles.published_at, articles.created_at)) DESC, articles.created_at DESC';
+	const order = orderByClause(query.sort ?? DEFAULT_ARTICLE_SORT);
 	const clauses: string[] = [];
 	const binds: string[] = [];
 	const q = query.q?.trim();
