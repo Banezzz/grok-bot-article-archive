@@ -43,11 +43,12 @@ a { color: var(--accent); }
 a:hover { color: color-mix(in srgb, var(--accent) 80%, var(--fg)); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 main { width: min(920px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 80px; }
-header.site { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px 28px; margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+header.site { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px 24px; margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+header.site > div { min-width: 0; max-width: 40rem; }
 header.site h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.03em; font-weight: 650; line-height: 1.25; }
 header.site h1.brand::before { content: ""; display: inline-block; width: .52rem; height: .52rem; border-radius: 3px; background: var(--accent); margin-right: .5rem; vertical-align: .12em; }
 header.site p { margin: 6px 0 0; color: var(--muted); font-size: 0.92rem; }
-nav.site { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+nav.site { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
 nav.site .who { color: var(--muted); font-size: 0.86rem; padding: 0 4px; }
 .chrome-toggles { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 button, .btn { appearance: none; border: 0; border-radius: 9px; padding: 8px 13px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 550; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; line-height: 1.25; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
@@ -127,9 +128,13 @@ tr:last-child td { border-bottom: 0; }
 .crumb .back:hover { text-decoration: underline; }
 .crumb-sep { color: var(--muted); }
 .crumb [aria-current="page"] { color: var(--muted); }
+@media (max-width: 860px) {
+  header.site { grid-template-columns: 1fr; }
+  nav.site { justify-content: flex-start; }
+}
 @media (max-width: 720px) {
   main { width: min(920px, calc(100% - 28px)); padding-top: 20px; }
-  header.site { gap: 16px; }
+  header.site { gap: 14px; }
   .card { grid-template-columns: 1fr; }
   .thumb, .thumb-fallback { width: 100%; height: 168px; }
   .add-user, .add-folder, .rename-row { grid-template-columns: 1fr; }
