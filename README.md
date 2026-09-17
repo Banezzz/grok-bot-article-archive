@@ -154,6 +154,7 @@ npm run typecheck
 
 - **Folders** are manual and per-user. Create, rename, delete, and reorder them on `/folders`.
 - An article can sit in many of *your* folders at once (many-to-many on `articles.id`).
+- Assign folders from the list card or the article chrome with a custom checkbox dropdown (not a native `<select>`). Check or uncheck many folders, then Apply. Escape, Cancel, or click-outside discards the draft. `POST /folders/membership` replaces your membership set for that article in one submit.
 - Filter the list with `/?folder=<folder-id>`. Folder chips appear above the tag chips.
 - **Stars** are per-user. Toggle from the list card or the article chrome (`POST /star`).
 - Filter with `/?starred=1`. Combine with a folder, tag, search, and (for admins) `mine=1`.

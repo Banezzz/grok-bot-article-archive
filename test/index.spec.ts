@@ -59,6 +59,12 @@ async function addUser(adminCookie: string, username: string, password: string, 
 	return tokenFromHtml(await response.text());
 }
 
+function checkedFolderIds(html: string): string[] {
+	return [...html.matchAll(/<input type="checkbox" name="folder_id" value="([^"]+)"([^>]*)>/g)]
+		.filter((match) => /\bchecked\b/.test(match[2] ?? ''))
+		.map((match) => match[1] ?? '');
+}
+
 async function upload(token: string, overrides: Record<string, unknown> = {}) {
 	return SELF.fetch('http://example.com/api/upload', {
 		method: 'POST',
@@ -437,6 +443,101 @@ describe('article archive worker', () => {
 		const users = await (await SELF.fetch('http://example.com/admin/users', { headers })).text();
 		expect(users).toContain('← Archive');
 		expect(users).toContain('aria-current="page">Users');
+	});
+
+	it('renders a custom folder multi-select on list cards and article chrome', async () => {
+		const { cookie, token } = await setupAdmin();
+		expect((await upload(token, { slug: 'folder-ui', title: 'Folder UI' })).status).toBe(200);
+		const created = await SELF.fetch('http://example.com/folders', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ name: '灵感' }),
+		});
+		expect(created.status).toBe(200);
+
+		const list = await SELF.fetch('http://example.com/', {
+			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=zh` },
+		});
+		const listHtml = await list.text();
+		expect(listHtml).toContain('data-folder-picker');
+		expect(listHtml).toContain('加入文件夹 · 已选 0');
+		expect(listHtml).toContain('name="folder_id"');
+		expect(listHtml).toContain('灵感');
+		expect(listHtml).toContain('>应用<');
+		expect(listHtml).toContain('>取消<');
+		expect(listHtml).not.toMatch(/<select[^>]*name="folder_id"/);
+		expect(listHtml).toContain('data-archive-folder-picker-script');
+
+		const page = await SELF.fetch('http://example.com/a/folder-ui', {
+			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },
+		});
+		const html = await page.text();
+		expect(html).toContain('data-folder-picker');
+		expect(html).toContain('data-folder-picker-variant="chrome"');
+		expect(html).toContain('Add to folders · 0 selected');
+		expect(html).toContain('Choose folders');
+		expect(html).toContain('>Apply<');
+		expect(html).toContain('>Cancel<');
+		expect(html).toContain('灵感');
+		expect(html).toContain('name="folder_id"');
+		expect(html).toContain('type="checkbox"');
+		expect(html).not.toMatch(/<select[^>]*name="folder_id"/);
+		expect(html).toContain('data-archive-folder-picker');
+		expect(html).toContain('#221e1a');
+		expect(html).toContain('#f4f1ea');
+	});
+
+	it('adds and removes folder membership in one POST', async () => {
+		const { cookie, token } = await setupAdmin();
+		expect((await upload(token, { slug: 'multi-fold', title: 'Multi fold' })).status).toBe(200);
+		await SELF.fetch('http://example.com/folders', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ name: 'Inbox' }),
+		});
+		await SELF.fetch('http://example.com/folders', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ name: 'Later' }),
+		});
+		const foldersPage = await SELF.fetch('http://example.com/folders', { headers: { cookie } });
+		const ids = [...(await foldersPage.text()).matchAll(/action="\/folders\/([^/]+)\/rename"/g)].map((match) => match[1]);
+		expect(ids).toHaveLength(2);
+		const [inboxId, laterId] = ids;
+
+		const addBoth = new URLSearchParams({ slug: 'multi-fold', next: '/a/multi-fold' });
+		addBoth.append('folder_id', inboxId ?? '');
+		addBoth.append('folder_id', laterId ?? '');
+		const added = await SELF.fetch('http://example.com/folders/membership', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: addBoth,
+			redirect: 'manual',
+		});
+		expect(added.status).toBe(303);
+
+		const afterAdd = await (await SELF.fetch('http://example.com/a/multi-fold', { headers: { cookie: `${cookie}; archive_lang=en` } })).text();
+		expect(afterAdd).toContain('Add to folders · 2 selected');
+		expect(checkedFolderIds(afterAdd).sort()).toEqual([inboxId, laterId].sort());
+
+		const keepInbox = new URLSearchParams({ slug: 'multi-fold', next: '/' });
+		keepInbox.append('folder_id', inboxId ?? '');
+		const removed = await SELF.fetch('http://example.com/folders/membership', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: keepInbox,
+			redirect: 'manual',
+		});
+		expect(removed.status).toBe(303);
+
+		const list = await (await SELF.fetch('http://example.com/', { headers: { cookie: `${cookie}; archive_lang=en` } })).text();
+		expect(list).toContain('Add to folders · 1 selected');
+		expect(checkedFolderIds(list)).toEqual([inboxId]);
+
+		const laterOnly = await (await SELF.fetch(`http://example.com/?folder=${laterId}`, { headers: { cookie } })).text();
+		expect(laterOnly).not.toContain('multi-fold');
+		const inboxOnly = await (await SELF.fetch(`http://example.com/?folder=${inboxId}`, { headers: { cookie } })).text();
+		expect(inboxOnly).toContain('multi-fold');
 	});
 
 	it('keeps a back-to-archive control on article chrome', async () => {
