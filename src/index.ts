@@ -1,5 +1,5 @@
 import { clearSessionCookie, createSessionCookie, getSession, resolveUploadActor, toSessionUser, unauthorized } from './auth';
-import { localeCookie, parseLocale, parseLocaleParam, translateError } from './i18n';
+import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemeParam, themeCookie, translateError } from './i18n';
 import { createFolder, deleteFolder, isValidFolderId, listFolders, moveFolder, renameFolder, setArticleFolders, toggleArticleStar } from './folders';
 import {
 	adminUsersPage,
@@ -44,6 +44,7 @@ function ui(request: Request, overridePath?: string): Chrome {
 	const url = new URL(request.url);
 	return {
 		locale: parseLocale(request),
+		theme: parseTheme(request),
 		path: overridePath ?? `${url.pathname}${url.search}`,
 	};
 }
@@ -406,7 +407,7 @@ async function handleArticlePage(env: Env, slug: string, session: SessionUser, c
 	}
 
 	const folders = await listFolders(env, session.id);
-	return injectArchiveChrome(new Response(object.body, { headers }), row, folders, chrome.locale);
+	return injectArchiveChrome(new Response(object.body, { headers }), row, folders, chrome);
 }
 
 async function handleArticleDownload(env: Env, slug: string, session: SessionUser, chrome: Chrome): Promise<Response> {
@@ -440,22 +441,29 @@ async function handleArticleDownload(env: Env, slug: string, session: SessionUse
 	return new Response(object.body, { headers });
 }
 
-function handleLang(request: Request): Response {
+function handlePrefCookie(request: Request, kind: 'lang' | 'theme'): Response {
 	if (request.method !== 'GET') {
 		return methodNotAllowed('GET');
 	}
 	const url = new URL(request.url);
-	const locale = parseLocaleParam(url.searchParams.get('set'));
 	const next = safeNextPath(url.searchParams.get('next'));
 	const location = new URL(next, url.origin).toString();
-	if (!locale) {
+	let cookie: string | null = null;
+	if (kind === 'lang') {
+		const locale = parseLocaleParam(url.searchParams.get('set'));
+		cookie = locale ? localeCookie(locale, url) : null;
+	} else {
+		const theme = parseThemeParam(url.searchParams.get('set'));
+		cookie = theme ? themeCookie(theme, url) : null;
+	}
+	if (!cookie) {
 		return Response.redirect(location, 302);
 	}
 	return new Response(null, {
 		status: 302,
 		headers: {
 			location,
-			'set-cookie': localeCookie(locale, url),
+			'set-cookie': cookie,
 			'cache-control': 'private, no-store',
 		},
 	});
@@ -578,7 +586,7 @@ function isPublicPath(pathname: string, method: string): boolean {
 	if (pathname === '/setup' && (method === 'GET' || method === 'POST')) {
 		return true;
 	}
-	if (pathname === '/lang' && method === 'GET') {
+	if ((pathname === '/lang' || pathname === '/theme') && method === 'GET') {
 		return true;
 	}
 	return false;
@@ -616,7 +624,10 @@ export default {
 				return await handleLogout(request);
 			}
 			if (pathname === '/lang') {
-				return handleLang(request);
+				return handlePrefCookie(request, 'lang');
+			}
+			if (pathname === '/theme') {
+				return handlePrefCookie(request, 'theme');
 			}
 
 			const session = await getSession(request, env);

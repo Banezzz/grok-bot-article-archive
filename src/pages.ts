@@ -1,5 +1,17 @@
 import type { FolderSummary } from './folders';
-import { formatUiDate, htmlLang, LANG_BOOTSTRAP, langSetHref, t, tagLabel, type Locale } from './i18n';
+import {
+	formatUiDate,
+	htmlLang,
+	LANG_BOOTSTRAP,
+	langSetHref,
+	t,
+	tagLabel,
+	THEME_BOOTSTRAP,
+	themeSetHref,
+	type Locale,
+	type MessageKey,
+	type Theme,
+} from './i18n';
 import type { ArticleView, TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
@@ -7,96 +19,132 @@ import { escapeHtml, safeHttpUrl } from './util';
 export type Chrome = {
 	locale: Locale;
 	path: string;
+	theme: Theme | null;
 };
 
+const LIGHT_VARS = `--bg:#f3f0e8; --fg:#1a1814; --muted:#6b645a; --card:#fffdf8; --border:#e4ddd0; --accent:#0c6a52; --accent-fg:#fff; --shadow:0 1px 2px rgba(26,24,20,.05), 0 10px 28px rgba(26,24,20,.05); --ring:color-mix(in srgb, var(--accent) 28%, transparent); --danger:#9b2c20;`;
+const DARK_VARS = `--bg:#12100e; --fg:#f4efe6; --muted:#b3aaa0; --card:#1d1a16; --border:#3b342c; --accent:#86d4b0; --accent-fg:#10211a; --shadow:0 1px 2px rgba(0,0,0,.28), 0 14px 32px rgba(0,0,0,.22); --ring:color-mix(in srgb, var(--accent) 32%, transparent); --danger:#e07a70;`;
+
 const CHROME_STYLE = `
-:root { color-scheme: light dark; --bg:#f6f4ef; --fg:#1c1916; --muted:#5c564e; --card:#fff; --border:#e4dfd6; --accent:#0f6e56; --accent-fg:#fff; }
+html { color-scheme: light; ${LIGHT_VARS} }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#161411; --fg:#f3efe8; --muted:#b4ada3; --card:#221e1a; --border:#3a342d; --accent:#7dcca8; --accent-fg:#12211b; }
+  html:not([data-theme="light"]) { color-scheme: dark; ${DARK_VARS} }
 }
+html[data-theme="dark"] { color-scheme: dark; ${DARK_VARS} }
+html[data-theme="light"] { color-scheme: light; ${LIGHT_VARS} }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--fg); line-height: 1.5; min-height: 100vh; }
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  background: var(--bg); color: var(--fg); line-height: 1.55; min-height: 100vh;
+  letter-spacing: -0.011em; -webkit-font-smoothing: antialiased;
+}
 a { color: var(--accent); }
-main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 24px 0 64px; }
-header.site { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
-header.site h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.02em; }
-header.site p { margin: 4px 0 0; color: var(--muted); font-size: 0.9rem; }
-nav.site { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-nav.site .who { color: var(--muted); font-size: 0.9rem; }
-button, .btn { appearance: none; border: 0; border-radius: 8px; padding: 8px 12px; background: var(--accent); color: var(--accent-fg); font: inherit; cursor: pointer; text-decoration: none; display: inline-flex; }
-button.ghost, .btn.ghost { background: transparent; color: var(--fg); border: 1px solid var(--border); }
-button.danger { background: transparent; color: inherit; border: 1px solid color-mix(in srgb, #c0392b 45%, var(--border)); }
-.search { display: flex; gap: 8px; margin-bottom: 14px; }
-.search input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--card); color: var(--fg); border-radius: 8px; padding: 10px 12px; font: inherit; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 18px; padding: 0; list-style: none; }
-.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; text-decoration: none; color: inherit; font-size: 0.82rem; background: var(--card); }
-.chip:hover { border-color: var(--accent); }
+a:hover { color: color-mix(in srgb, var(--accent) 80%, var(--fg)); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { width: min(920px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 80px; }
+header.site { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 16px 24px; margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+header.site > div { min-width: 0; max-width: 40rem; }
+header.site h1 { font-size: 1.4rem; margin: 0; letter-spacing: -0.03em; font-weight: 650; line-height: 1.25; }
+header.site h1.brand::before { content: ""; display: inline-block; width: .52rem; height: .52rem; border-radius: 3px; background: var(--accent); margin-right: .5rem; vertical-align: .12em; }
+header.site p { margin: 6px 0 0; color: var(--muted); font-size: 0.92rem; }
+nav.site { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; }
+nav.site .who { color: var(--muted); font-size: 0.86rem; padding: 0 4px; }
+.chrome-toggles { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button, .btn { appearance: none; border: 0; border-radius: 9px; padding: 8px 13px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 550; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; line-height: 1.25; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
+button:hover, .btn:hover { box-shadow: 0 0 0 3px var(--ring); }
+button.ghost, .btn.ghost { background: var(--card); color: var(--fg); border: 1px solid var(--border); font-weight: 500; box-shadow: none; }
+button.ghost:hover, .btn.ghost:hover { background: color-mix(in srgb, var(--accent) 10%, var(--card)); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); box-shadow: none; }
+button.danger { background: transparent; color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border)); }
+button.danger:hover { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+.search { display: flex; gap: 8px; margin-bottom: 16px; }
+.search input { flex: 1; min-width: 0; border: 1px solid var(--border); background: var(--card); color: var(--fg); border-radius: 10px; padding: 11px 13px; font: inherit; box-shadow: var(--shadow); }
+.search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); outline: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; padding: 0; list-style: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 999px; padding: 5px 11px; text-decoration: none; color: inherit; font-size: 0.82rem; background: var(--card); transition: border-color .12s ease, background .12s ease; }
+.chip:hover { border-color: var(--accent); color: inherit; }
 .chip.active { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
-.chip .count { opacity: 0.7; font-variant-numeric: tabular-nums; }
-.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
-.card { display: grid; grid-template-columns: 132px 1fr; gap: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-.card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 10px; }
+.chip .count { opacity: 0.68; font-variant-numeric: tabular-nums; font-size: 0.75rem; }
+.list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.card { display: grid; grid-template-columns: 132px 1fr; gap: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); transition: border-color .15s ease; }
+.card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
+.card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 12px; }
 .star { min-width: 2.4rem; justify-content: center; }
-.star.on { border-color: color-mix(in srgb, #d4a017 55%, var(--border)); color: #b8860b; }
+.star.on { border-color: color-mix(in srgb, #d4a017 55%, var(--border)); color: #b8860b; background: color-mix(in srgb, #d4a017 10%, var(--card)); }
 .folder-picker { font-size: 0.85rem; }
 .folder-picker summary { cursor: pointer; color: var(--muted); }
-.folder-picker form { display: grid; gap: 6px; margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); min-width: 200px; }
+.folder-picker form { display: grid; gap: 6px; margin-top: 8px; padding: 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); min-width: 200px; }
 .folder-picker label { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 0.85rem; }
 .folder-picker input[type=checkbox] { width: auto; margin: 0; }
-.folder-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
-.folder-card { display: grid; gap: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
-.folder-card h2 { margin: 0; font-size: 1.05rem; }
+.folder-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.folder-card { display: grid; gap: 12px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; box-shadow: var(--shadow); }
+.folder-card h2 { margin: 0; font-size: 1.08rem; letter-spacing: -0.02em; }
 .folder-card h2 a { color: inherit; text-decoration: none; }
 .folder-card h2 a:hover { color: var(--accent); }
-.folder-meta { color: var(--muted); font-size: 0.85rem; margin: 0; }
+.folder-meta { color: var(--muted); font-size: 0.85rem; margin: 4px 0 0; }
 .rename-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
 .rename-row input { margin: 0; }
-.add-folder { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin: 0 0 18px; }
+.add-folder { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; margin: 0 0 20px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
 .add-folder input { margin: 0; }
-.thumb, .thumb-fallback { width: 132px; height: 88px; border-radius: 8px; object-fit: cover; background: color-mix(in srgb, var(--border) 70%, var(--card)); }
+.thumb, .thumb-fallback { width: 132px; height: 88px; border-radius: 10px; object-fit: cover; background: color-mix(in srgb, var(--border) 70%, var(--card)); }
 .thumb-fallback { display: block; }
-.card h2 { margin: 0 0 6px; font-size: 1.05rem; }
+.card h2 { margin: 0 0 6px; font-size: 1.08rem; letter-spacing: -0.02em; }
 .card h2 a { color: inherit; text-decoration: none; }
 .card h2 a:hover { color: var(--accent); }
-.summary { margin: 0 0 8px; color: var(--muted); font-size: 0.92rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.summary { margin: 0 0 10px; color: var(--muted); font-size: 0.92rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
-.pill { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 0.75rem; color: inherit; text-decoration: none; }
-.meta { display: flex; flex-wrap: wrap; gap: 8px 12px; color: var(--muted); font-size: 0.85rem; align-items: center; }
-.badge { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
-.empty { border: 1px dashed var(--border); border-radius: 12px; padding: 28px 16px; color: var(--muted); text-align: center; }
-.panel { width: min(480px, calc(100% - 32px)); margin: 10vh auto; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; }
-.panel.wide { width: min(960px, calc(100% - 32px)); margin: 0 auto; }
-.panel h1 { margin: 0 0 8px; font-size: 1.35rem; }
+.pill { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; font-size: 0.74rem; color: inherit; text-decoration: none; background: color-mix(in srgb, var(--bg) 55%, var(--card)); }
+.pill:hover { border-color: var(--accent); color: inherit; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 12px; color: var(--muted); font-size: 0.84rem; align-items: center; }
+.badge { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.empty { border: 1px dashed color-mix(in srgb, var(--border) 80%, var(--muted)); border-radius: 16px; padding: 48px 20px; color: var(--muted); text-align: center; background: color-mix(in srgb, var(--card) 72%, transparent); font-size: 0.98rem; }
+.panel { width: min(440px, calc(100% - 32px)); margin: 12vh auto; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 32px; box-shadow: var(--shadow); }
+.panel.wide { width: min(920px, 100%); margin: 0 auto; }
+.panel h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: -0.03em; }
 .panel p { margin: 0 0 16px; color: var(--muted); }
-label { display: block; font-size: 0.85rem; margin-bottom: 6px; }
-input[type=password], input[type=text], select { width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 8px; padding: 10px 12px; font: inherit; margin-bottom: 14px; }
-.error { background: color-mix(in srgb, #c0392b 12%, var(--card)); color: inherit; border: 1px solid color-mix(in srgb, #c0392b 35%, var(--border)); padding: 8px 10px; border-radius: 8px; margin-bottom: 14px; font-size: 0.9rem; }
-.notice { background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); padding: 12px; border-radius: 10px; margin-bottom: 16px; }
+label { display: block; font-size: 0.82rem; margin-bottom: 6px; color: var(--muted); font-weight: 550; }
+input[type=password], input[type=text], input[type=search], select { width: 100%; border: 1px solid var(--border); background: var(--bg); color: var(--fg); border-radius: 10px; padding: 10px 12px; font: inherit; margin-bottom: 14px; }
+input[type=password]:focus, input[type=text]:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--ring); outline: none; }
+.error { background: color-mix(in srgb, var(--danger) 12%, var(--card)); color: inherit; border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); padding: 10px 12px; border-radius: 10px; margin-bottom: 14px; font-size: 0.9rem; }
+.notice { background: color-mix(in srgb, var(--accent) 12%, var(--card)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); padding: 14px; border-radius: 12px; margin-bottom: 16px; }
 .notice code, .token { display: block; margin-top: 8px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 12px; }
-th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 0.92rem; vertical-align: middle; }
-th { color: var(--muted); font-weight: 600; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+table { width: 100%; border-collapse: collapse; background: transparent; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.92rem; vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
+tr:last-child td { border-bottom: 0; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.add-user { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 8px; align-items: end; margin: 18px 0; }
+.add-user { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 10px; align-items: end; margin: 0 0 20px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
 .add-user input, .add-user select { margin: 0; }
-.not-found { text-align: center; padding: 48px 0; color: var(--muted); }
-.lang-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; font-size: 0.8rem; line-height: 1.2; }
-.lang-switch a { padding: 6px 10px; text-decoration: none; color: inherit; }
-.lang-switch a.active { background: var(--accent); color: var(--accent-fg); }
-.lang-switch a:hover:not(.active) { background: color-mix(in srgb, var(--accent) 14%, var(--card)); }
-.panel-top { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.not-found { text-align: center; padding: 64px 0; color: var(--muted); }
+.seg-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; font-size: 0.78rem; line-height: 1.2; background: var(--card); }
+.seg-switch a { padding: 6px 11px; text-decoration: none; color: inherit; }
+.seg-switch a.active { background: var(--accent); color: var(--accent-fg); }
+.seg-switch a:hover:not(.active) { background: color-mix(in srgb, var(--accent) 12%, var(--card)); color: inherit; }
+.panel-top { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+.crumb { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; font-size: 0.86rem; }
+.crumb .back { font-weight: 600; text-decoration: none; }
+.crumb .back:hover { text-decoration: underline; }
+.crumb-sep { color: var(--muted); }
+.crumb [aria-current="page"] { color: var(--muted); }
+@media (max-width: 860px) {
+  header.site { grid-template-columns: 1fr; }
+  nav.site { justify-content: flex-start; }
+}
 @media (max-width: 720px) {
+  main { width: min(920px, calc(100% - 28px)); padding-top: 20px; }
+  header.site { gap: 14px; }
   .card { grid-template-columns: 1fr; }
-  .thumb, .thumb-fallback { width: 100%; height: 160px; }
+  .thumb, .thumb-fallback { width: 100%; height: 168px; }
   .add-user, .add-folder, .rename-row { grid-template-columns: 1fr; }
 }
 `;
 
-function layout(title: string, body: string, locale: Locale): string {
+function layout(title: string, body: string, chrome: Chrome): string {
+	const themeAttr = chrome.theme ? ` data-theme="${chrome.theme}"` : '';
 	return `<!doctype html>
-<html lang="${htmlLang(locale)}">
+<html lang="${htmlLang(chrome.locale)}"${themeAttr}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -104,6 +152,7 @@ function layout(title: string, body: string, locale: Locale): string {
   <title>${escapeHtml(title)}</title>
   <style>${CHROME_STYLE}</style>
   ${LANG_BOOTSTRAP}
+  ${THEME_BOOTSTRAP}
 </head>
 <body>
 ${body}
@@ -111,29 +160,84 @@ ${body}
 </html>`;
 }
 
-function htmlPage(title: string, body: string, locale: Locale, status = 200, headers?: HeadersInit): Response {
+function htmlPage(title: string, body: string, chrome: Chrome, status = 200, headers?: HeadersInit): Response {
 	const extra = new Headers(headers);
 	extra.set('content-type', 'text/html; charset=utf-8');
 	extra.set('cache-control', 'private, no-store');
 	extra.set('x-robots-tag', 'noindex, nofollow');
 	extra.set('x-content-type-options', 'nosniff');
 	extra.set('referrer-policy', 'same-origin');
-	return new Response(layout(title, body, locale), { status, headers: extra });
+	return new Response(layout(title, body, chrome), { status, headers: extra });
+}
+
+function segSwitch(
+	chrome: Chrome,
+	ariaKey: MessageKey,
+	options: Array<{ value: string; href: string; label: string; active: boolean; dataAttr?: string }>,
+	className: string,
+): string {
+	return `<span class="seg-switch ${className}" role="group" aria-label="${escapeHtml(t(chrome.locale, ariaKey))}">
+    ${options
+			.map((option) => {
+				const data = option.dataAttr ? ` ${option.dataAttr}` : '';
+				return `<a class="${option.active ? 'active' : ''}" href="${escapeHtml(option.href)}"${option.active ? ' aria-current="true"' : ''}${data}>${escapeHtml(option.label)}</a>`;
+			})
+			.join('')}
+  </span>`;
 }
 
 export function langSwitch(chrome: Chrome): string {
-	const zh = langSetHref('zh', chrome.path);
-	const en = langSetHref('en', chrome.path);
-	return `<span class="lang-switch" role="group" aria-label="${escapeHtml(t(chrome.locale, 'langToggle'))}">
-    <a class="${chrome.locale === 'zh' ? 'active' : ''}" href="${escapeHtml(zh)}"${chrome.locale === 'zh' ? ' aria-current="true"' : ''}>${escapeHtml(t(chrome.locale, 'langZh'))}</a>
-    <a class="${chrome.locale === 'en' ? 'active' : ''}" href="${escapeHtml(en)}"${chrome.locale === 'en' ? ' aria-current="true"' : ''}>${escapeHtml(t(chrome.locale, 'langEn'))}</a>
-  </span>`;
+	return segSwitch(
+		chrome,
+		'langToggle',
+		[
+			{ value: 'zh', href: langSetHref('zh', chrome.path), label: t(chrome.locale, 'langZh'), active: chrome.locale === 'zh' },
+			{ value: 'en', href: langSetHref('en', chrome.path), label: t(chrome.locale, 'langEn'), active: chrome.locale === 'en' },
+		],
+		'lang-switch',
+	);
+}
+
+export function themeSwitch(chrome: Chrome): string {
+	return segSwitch(
+		chrome,
+		'themeToggle',
+		[
+			{
+				value: 'light',
+				href: themeSetHref('light', chrome.path),
+				label: t(chrome.locale, 'themeLight'),
+				active: chrome.theme === 'light',
+				dataAttr: 'data-theme-set="light"',
+			},
+			{
+				value: 'dark',
+				href: themeSetHref('dark', chrome.path),
+				label: t(chrome.locale, 'themeDark'),
+				active: chrome.theme === 'dark',
+				dataAttr: 'data-theme-set="dark"',
+			},
+		],
+		'theme-switch',
+	);
+}
+
+function chromeToggles(chrome: Chrome): string {
+	return `<div class="chrome-toggles">${langSwitch(chrome)}${themeSwitch(chrome)}</div>`;
+}
+
+function crumbNav(chrome: Chrome, currentKey: MessageKey): string {
+	return `<nav class="crumb" aria-label="${escapeHtml(t(chrome.locale, 'crumbAria'))}">
+    <a class="back" href="/">${escapeHtml(t(chrome.locale, 'backArchive'))}</a>
+    <span class="crumb-sep" aria-hidden="true">/</span>
+    <span aria-current="page">${escapeHtml(t(chrome.locale, currentKey))}</span>
+  </nav>`;
 }
 
 function siteNav(viewer: SessionUser, chrome: Chrome, extra = ''): string {
 	const locale = chrome.locale;
 	return `<nav class="site">
-    ${langSwitch(chrome)}
+    ${chromeToggles(chrome)}
     ${viewer.role === 'admin' ? `<a class="btn ghost" href="/admin/users">${escapeHtml(t(locale, 'users'))}</a>` : ''}
     <a class="btn ghost" href="/folders">${escapeHtml(t(locale, 'folders'))}</a>
     <a class="btn ghost" href="/settings">${escapeHtml(t(locale, 'settings'))}</a>
@@ -143,12 +247,30 @@ function siteNav(viewer: SessionUser, chrome: Chrome, extra = ''): string {
   </nav>`;
 }
 
+function siteHeader(
+	viewer: SessionUser,
+	chrome: Chrome,
+	title: string,
+	leadHtml: string,
+	extraNav = '',
+	crumbKey?: MessageKey,
+): string {
+	return `<header class="site">
+    <div>
+      ${crumbKey ? crumbNav(chrome, crumbKey) : ''}
+      <h1${crumbKey ? '' : ' class="brand"'}>${escapeHtml(title)}</h1>
+      <p>${leadHtml}</p>
+    </div>
+    ${siteNav(viewer, chrome, extraNav)}
+  </header>`;
+}
+
 export function loginPage(chrome: Chrome, nextPath: string, error?: string, setupAvailable = false): Response {
 	const locale = chrome.locale;
 	const body = `
   <main>
     <form class="panel" method="post" action="/login">
-      <div class="panel-top">${langSwitch(chrome)}</div>
+      <div class="panel-top">${chromeToggles(chrome)}</div>
       <h1>${escapeHtml(t(locale, 'signInHeading'))}</h1>
       <p>${escapeHtml(t(locale, 'signInLead'))}</p>
       ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
@@ -161,7 +283,7 @@ export function loginPage(chrome: Chrome, nextPath: string, error?: string, setu
       <button type="submit">${escapeHtml(t(locale, 'signIn'))}</button>
     </form>
   </main>`;
-	return htmlPage(t(locale, 'signInTitle'), body, locale);
+	return htmlPage(t(locale, 'signInTitle'), body, chrome);
 }
 
 export function setupPage(chrome: Chrome, error?: string): Response {
@@ -169,7 +291,7 @@ export function setupPage(chrome: Chrome, error?: string): Response {
 	const body = `
   <main>
     <form class="panel" method="post" action="/setup">
-      <div class="panel-top">${langSwitch(chrome)}</div>
+      <div class="panel-top">${chromeToggles(chrome)}</div>
       <h1>${escapeHtml(t(locale, 'setupHeading'))}</h1>
       <p>${escapeHtml(t(locale, 'setupLead'))}</p>
       ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
@@ -182,7 +304,7 @@ export function setupPage(chrome: Chrome, error?: string): Response {
       <button type="submit">${escapeHtml(t(locale, 'createAdmin'))}</button>
     </form>
   </main>`;
-	return htmlPage(t(locale, 'setupTitle'), body, locale);
+	return htmlPage(t(locale, 'setupTitle'), body, chrome);
 }
 
 export function setupCompletePage(
@@ -196,7 +318,7 @@ export function setupCompletePage(
 	const body = `
   <main>
     <div class="panel">
-      <div class="panel-top">${langSwitch(chrome)}</div>
+      <div class="panel-top">${chromeToggles(chrome)}</div>
       <h1>${escapeHtml(t(locale, 'setupCompleteHeading'))}</h1>
       <p>${t(locale, 'setupCompleteLead', { user: escapeHtml(username), n: assigned })}</p>
       <div class="notice">
@@ -207,7 +329,7 @@ export function setupCompletePage(
       <a class="btn" href="/">${escapeHtml(t(locale, 'goToArchive'))}</a>
     </div>
   </main>`;
-	return htmlPage(t(locale, 'setupCompleteTitle'), body, locale, 200, headers);
+	return htmlPage(t(locale, 'setupCompleteTitle'), body, chrome, 200, headers);
 }
 
 export type ListFilters = {
@@ -388,13 +510,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
 
 	const body = `
   <main>
-    <header class="site">
-      <div>
-        <h1>${escapeHtml(t(locale, 'siteTitle'))}</h1>
-        <p>${escapeHtml(countLabel)}${filterNote ? ` ${filterNote}` : ''}</p>
-      </div>
-      ${siteNav(viewer, chrome, extras)}
-    </header>
+    ${siteHeader(viewer, chrome, t(locale, 'siteTitle'), `${escapeHtml(countLabel)}${filterNote ? ` ${filterNote}` : ''}`, extras)}
     <form class="search" method="get" action="/" role="search">
       ${activeTag ? `<input type="hidden" name="tag" value="${escapeHtml(activeTag)}">` : ''}
       ${activeFolderId ? `<input type="hidden" name="folder" value="${escapeHtml(activeFolderId)}">` : ''}
@@ -407,7 +523,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
     ${chips}
     ${cards}
   </main>`;
-	return htmlPage(t(locale, 'siteTitle'), body, locale);
+	return htmlPage(t(locale, 'siteTitle'), body, chrome);
 }
 
 export function foldersPage(chrome: Chrome, viewer: SessionUser, folders: FolderSummary[], error?: string): Response {
@@ -451,13 +567,7 @@ export function foldersPage(chrome: Chrome, viewer: SessionUser, folders: Folder
 
 	const body = `
   <main>
-    <header class="site">
-      <div>
-        <h1>${escapeHtml(t(locale, 'foldersHeading'))}</h1>
-        <p>${escapeHtml(t(locale, 'foldersLead'))} ${escapeHtml(countLabel)}</p>
-      </div>
-      ${siteNav(viewer, chrome)}
-    </header>
+    ${siteHeader(viewer, chrome, t(locale, 'foldersHeading'), `${escapeHtml(t(locale, 'foldersLead'))} ${escapeHtml(countLabel)}`, '', 'folders')}
     ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
     <form class="add-folder" method="post" action="/folders">
       <div>
@@ -468,20 +578,14 @@ export function foldersPage(chrome: Chrome, viewer: SessionUser, folders: Folder
     </form>
     ${cards}
   </main>`;
-	return htmlPage(t(locale, 'foldersTitle'), body, locale);
+	return htmlPage(t(locale, 'foldersTitle'), body, chrome);
 }
 
 export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string | null, issuedToken?: string, error?: string): Response {
 	const locale = chrome.locale;
 	const body = `
   <main>
-    <header class="site">
-      <div>
-        <h1>${escapeHtml(t(locale, 'settingsHeading'))}</h1>
-        <p>${escapeHtml(t(locale, 'settingsLead'))}</p>
-      </div>
-      ${siteNav(viewer, chrome)}
-    </header>
+    ${siteHeader(viewer, chrome, t(locale, 'settingsHeading'), escapeHtml(t(locale, 'settingsLead')), '', 'settings')}
     <section class="panel wide">
       ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
       ${
@@ -495,7 +599,7 @@ export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string
       </form>
     </section>
   </main>`;
-	return htmlPage(t(locale, 'settingsTitle'), body, locale);
+	return htmlPage(t(locale, 'settingsTitle'), body, chrome);
 }
 
 export function adminUsersPage(
@@ -534,13 +638,7 @@ export function adminUsersPage(
 
 	const body = `
   <main>
-    <header class="site">
-      <div>
-        <h1>${escapeHtml(t(locale, 'usersHeading'))}</h1>
-        <p>${escapeHtml(t(locale, 'usersLead'))}</p>
-      </div>
-      ${siteNav(viewer, chrome)}
-    </header>
+    ${siteHeader(viewer, chrome, t(locale, 'usersHeading'), escapeHtml(t(locale, 'usersLead')), '', 'users')}
     ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
     ${
 			issued
@@ -572,7 +670,7 @@ export function adminUsersPage(
       </table>
     </div>
   </main>`;
-	return htmlPage(t(locale, 'usersTitle'), body, locale);
+	return htmlPage(t(locale, 'usersTitle'), body, chrome);
 }
 
 export function notFoundPage(chrome: Chrome): Response {
@@ -580,27 +678,44 @@ export function notFoundPage(chrome: Chrome): Response {
 	return htmlPage(
 		t(locale, 'notFoundTitle'),
 		`<main>
-      <div class="panel-top" style="width:min(960px,calc(100% - 32px));margin:24px auto 0">${langSwitch(chrome)}</div>
+      <div class="panel-top" style="width:min(920px,calc(100% - 40px));margin:24px auto 0">${chromeToggles(chrome)}</div>
       <p class="not-found">${escapeHtml(t(locale, 'notFound'))} <a href="/">${escapeHtml(t(locale, 'backToList'))}</a></p>
     </main>`,
-		locale,
+		chrome,
 		404,
 	);
 }
 
-function archiveBar(article: ArticleView, folders: FolderSummary[], locale: Locale): string {
+function overlaySeg(
+	aria: string,
+	options: Array<{ href: string; label: string; active: boolean }>,
+): string {
+	return `<span role="group" aria-label="${escapeHtml(aria)}" style="display:inline-flex;border:1px solid rgba(255,255,255,.22);border-radius:999px;overflow:hidden;font-size:12px">
+    ${options
+			.map(
+				(option) =>
+					`<a href="${escapeHtml(option.href)}" style="padding:4px 8px;text-decoration:none;color:${option.active ? '#12211b' : '#f4f1ea'};background:${option.active ? '#9fe0c4' : 'transparent'}">${escapeHtml(option.label)}</a>`,
+			)
+			.join('')}
+  </span>`;
+}
+
+function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chrome): string {
+	const locale = chrome.locale;
 	const source = safeHttpUrl(article.source_url);
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
 	const downloadHref = `${articlePath}/download`;
-	const zh = langSetHref('zh', articlePath);
-	const en = langSetHref('en', articlePath);
 	const sourceLink = source
 		? `<a href="${escapeHtml(source)}" rel="noreferrer noopener" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'source'))}</a>`
 		: '';
-	const lang = `<span role="group" aria-label="${escapeHtml(t(locale, 'langToggle'))}" style="display:inline-flex;border:1px solid rgba(255,255,255,.22);border-radius:999px;overflow:hidden;font-size:12px">
-    <a href="${escapeHtml(zh)}" style="padding:4px 8px;text-decoration:none;color:${locale === 'zh' ? '#12211b' : '#f4f1ea'};background:${locale === 'zh' ? '#9fe0c4' : 'transparent'}">${escapeHtml(t(locale, 'langZh'))}</a>
-    <a href="${escapeHtml(en)}" style="padding:4px 8px;text-decoration:none;color:${locale === 'en' ? '#12211b' : '#f4f1ea'};background:${locale === 'en' ? '#9fe0c4' : 'transparent'}">${escapeHtml(t(locale, 'langEn'))}</a>
-  </span>`;
+	const lang = overlaySeg(t(locale, 'langToggle'), [
+		{ href: langSetHref('zh', articlePath), label: t(locale, 'langZh'), active: locale === 'zh' },
+		{ href: langSetHref('en', articlePath), label: t(locale, 'langEn'), active: locale === 'en' },
+	]);
+	const theme = overlaySeg(t(locale, 'themeToggle'), [
+		{ href: themeSetHref('light', articlePath), label: t(locale, 'themeLight'), active: chrome.theme === 'light' },
+		{ href: themeSetHref('dark', articlePath), label: t(locale, 'themeDark'), active: chrome.theme === 'dark' },
+	]);
 	const download = `<a href="${escapeHtml(downloadHref)}" style="color:#12211b;background:#9fe0c4;text-decoration:none;border-radius:8px;padding:6px 10px">${escapeHtml(t(locale, 'downloadHtml'))}</a>`;
 	const starLabel = article.starred ? t(locale, 'unstar') : t(locale, 'star');
 	const star = `<form method="post" action="/star" style="margin:0">
@@ -628,16 +743,17 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], locale: Loca
   ${star}
   ${folderForm}
   ${lang}
+  ${theme}
   ${sourceLink}
   ${download}
 </nav>`;
 }
 
-export function injectArchiveChrome(htmlResponse: Response, article: ArticleView, folders: FolderSummary[], locale: Locale): Response {
+export function injectArchiveChrome(htmlResponse: Response, article: ArticleView, folders: FolderSummary[], chrome: Chrome): Response {
 	return new HTMLRewriter()
 		.on('body', {
 			element(element) {
-				element.prepend(archiveBar(article, folders, locale), { html: true });
+				element.prepend(archiveBar(article, folders, chrome), { html: true });
 			},
 		})
 		.transform(htmlResponse);
