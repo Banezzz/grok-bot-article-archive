@@ -608,7 +608,7 @@ describe('article archive worker', () => {
 		).json()) as { articles: Array<{ slug: string }> };
 		expect(slugsOf(filtered)).toEqual(['no-pub-mid-join', 'old-pub-new-join']);
 
-		const search = (await (await SELF.fetch('http://example.com/api/articles?sort=joined&q=Old', { headers })).json()) as {
+		const search = (await (await SELF.fetch('http://example.com/api/articles?sort=joined&q=Old+pub+new', { headers })).json()) as {
 			articles: Array<{ slug: string }>;
 		};
 		expect(slugsOf(search)).toEqual(['old-pub-new-join']);
