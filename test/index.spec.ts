@@ -213,14 +213,14 @@ describe('article archive worker', () => {
 
 		const demote = await SELF.fetch(`http://example.com/admin/users/${adminId}/role`, {
 			method: 'POST',
-			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			headers: { cookie: `${cookie}; archive_lang=en`, 'content-type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams({ role: 'user' }),
 		});
 		expect(await demote.text()).toContain('Cannot demote the last remaining admin.');
 
 		const removed = await SELF.fetch(`http://example.com/admin/users/${adminId}/delete`, {
 			method: 'POST',
-			headers: { cookie },
+			headers: { cookie: `${cookie}; archive_lang=en` },
 		});
 		expect(await removed.text()).toContain('Cannot delete the last remaining admin.');
 	});
@@ -383,8 +383,9 @@ describe('article archive worker', () => {
 			headers: { cookie: readerCookie, 'content-type': 'application/x-www-form-urlencoded' },
 			body: new URLSearchParams({ name: 'Reader box' }),
 		});
-		expect(await readerFolders.text()).toContain('Reader box');
-		expect(await readerFolders.text()).not.toContain('Admin box');
+		const readerFolderHtml = await readerFolders.text();
+		expect(readerFolderHtml).toContain('Reader box');
+		expect(readerFolderHtml).not.toContain('Admin box');
 
 		await SELF.fetch('http://example.com/star', {
 			method: 'POST',

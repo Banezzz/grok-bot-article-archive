@@ -1,9 +1,9 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "article-archive",
-	// Replace every <YOUR_*> placeholder before `wrangler deploy`.
-	// These are not real Cloudflare IDs. Do not commit production values.
-	"account_id": "<YOUR_CLOUDFLARE_ACCOUNT_ID>",
+	// PLACEHOLDERS — replace every value below before `wrangler deploy`.
+	// These are not real Cloudflare resources. Do not commit production IDs.
+	"account_id": "00000000000000000000000000000000",
 	"main": "src/index.ts",
 	// Keep near today so the Worker gets current runtime behavior.
 	"compatibility_date": "2026-09-14",
@@ -14,15 +14,15 @@
 	"d1_databases": [
 		{
 			"binding": "DB",
-			"database_name": "<YOUR_D1_DATABASE_NAME>",
-			"database_id": "<YOUR_D1_DATABASE_ID>",
+			"database_name": "replace-me-d1-database",
+			"database_id": "00000000-0000-0000-0000-000000000000",
 			"migrations_dir": "migrations",
 		},
 	],
 	"r2_buckets": [
 		{
 			"binding": "ARTICLES",
-			"bucket_name": "<YOUR_R2_BUCKET_NAME>",
+			"bucket_name": "replace-me-r2-bucket",
 		},
 	],
 }

@@ -82,27 +82,27 @@ Successful uploads return `{ "ok": true, "slug", "url", "tags", "summary_zh", "t
 
 ## Deploy to Cloudflare (Free plan)
 
-Replace every `<YOUR_*>` placeholder with values from *your* account. Never paste another site's host, account ID, database ID, or bucket name into this repo.
+Replace every placeholder in `wrangler.jsonc` with values from *your* account. The committed values (`0000…`, `replace-me-d1-database`, `replace-me-r2-bucket`) are dummy stand-ins so Wrangler can validate the file. Never paste another site's host, account ID, database ID, or bucket name into this repo.
 
 ### 1. Create R2 and D1
 
 ```bash
-npx wrangler r2 bucket create <YOUR_R2_BUCKET_NAME>
-npx wrangler d1 create <YOUR_D1_DATABASE_NAME>
+npx wrangler r2 bucket create your-own-r2-bucket
+npx wrangler d1 create your-own-d1-database
 ```
 
-`wrangler d1 create` prints a `database_id`. Copy your Cloudflare **account ID** from the dashboard (Workers & Pages overview) or `npx wrangler whoami`.
+Pick any Free-plan-legal names. `wrangler d1 create` prints a `database_id`. Copy your Cloudflare **account ID** from the dashboard (Workers & Pages overview) or `npx wrangler whoami`.
 
 ### 2. Fill `wrangler.jsonc` placeholders
 
-Keep the binding names `DB` and `ARTICLES`. Edit only the placeholders:
+Keep the binding names `DB` and `ARTICLES`. Replace only the dummy fields:
 
-| Placeholder | Where it comes from |
-| --- | --- |
-| `<YOUR_CLOUDFLARE_ACCOUNT_ID>` | Dashboard or `wrangler whoami` |
-| `<YOUR_D1_DATABASE_NAME>` | The name you passed to `wrangler d1 create` |
-| `<YOUR_D1_DATABASE_ID>` | UUID printed by `wrangler d1 create` |
-| `<YOUR_R2_BUCKET_NAME>` | The name you passed to `wrangler r2 bucket create` |
+| Field in `wrangler.jsonc` | Committed dummy | Replace with |
+| --- | --- | --- |
+| `account_id` | `00000000000000000000000000000000` | Your account ID from the dashboard or `wrangler whoami` |
+| `d1_databases[0].database_name` | `replace-me-d1-database` | The name you passed to `wrangler d1 create` |
+| `d1_databases[0].database_id` | `00000000-0000-0000-0000-000000000000` | The UUID printed by `wrangler d1 create` |
+| `r2_buckets[0].bucket_name` | `replace-me-r2-bucket` | The name you passed to `wrangler r2 bucket create` |
 
 Optional: change the Worker `name` (this becomes `https://<name>.<subdomain>.workers.dev`).
 
