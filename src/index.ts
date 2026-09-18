@@ -41,6 +41,7 @@ import {
 	type SessionUser,
 	type UserRole,
 } from './users';
+import { getSiteIcon, isSiteIconPath, siteIconResponse } from './icons';
 import { htmlAttachmentDisposition, HttpError, isApiPath, isValidSlug, json, jsonError, MAX_UPLOAD_BYTES, readBodyWithLimit, safeNextPath } from './util';
 
 function ui(request: Request, overridePath?: string): Chrome {
@@ -578,7 +579,7 @@ async function handleAdminUserAction(request: Request, env: Env, session: Sessio
 }
 
 function isPublicPath(pathname: string, method: string): boolean {
-	if (pathname === '/health' || pathname === '/favicon.ico') {
+	if (pathname === '/health' || isSiteIconPath(pathname)) {
 		return true;
 	}
 	if (pathname === '/login' && (method === 'GET' || method === 'POST')) {
@@ -615,8 +616,12 @@ export default {
 			if (pathname === '/health') {
 				return json({ ok: true });
 			}
-			if (pathname === '/favicon.ico') {
-				return new Response(null, { status: 204 });
+			const siteIcon = getSiteIcon(pathname);
+			if (siteIcon) {
+				if (request.method !== 'GET' && request.method !== 'HEAD') {
+					return methodNotAllowed('GET, HEAD');
+				}
+				return siteIconResponse(siteIcon);
 			}
 			if (pathname === '/setup') {
 				return await handleSetup(request, env);

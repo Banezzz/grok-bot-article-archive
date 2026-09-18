@@ -8,11 +8,14 @@ Regular users only see their own articles. Admins see everyone and manage accoun
 
 There is no public registration. The first admin is created at `/setup`. Each user has their own upload bearer token (shown once, stored as a SHA-256 hash). Images stay embedded in the stored HTML.
 
+The template ships with a default favicon (stacked documents and a mint bookmark on warm paper). Replace the files in `assets/icons/` if you want your own; login and setup pages use it too.
+
 ## What you get
 
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /health` | Public | `{ ok: true }` for probes |
+| `GET /favicon.svg` · `GET /favicon.ico` · `GET /apple-touch-icon.png` | Public | Default site icons (also `/favicon-32.png`, `/icon-512.png`) |
 | `GET /setup` · `POST /setup` | Public only while `users` is empty | Create the first admin; then 404 |
 | `GET /login` · `POST /login` | Public | Username + password; HttpOnly session cookie |
 | `POST /logout` | Public | Clears the session cookie |
@@ -274,6 +277,7 @@ Access is an upgrade, not a requirement. It is not available on every Free-plan 
 
 ```
 src/            Worker entry, auth, D1/R2 store, HTML pages, injected image lightbox
+assets/icons/   Default favicon and app icons the Worker serves as public static files
 migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars)
 scripts/        Example upload curl
 docs/           Deploy guide, bot handoff, upload API, HTML template notes

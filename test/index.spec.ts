@@ -99,6 +99,56 @@ describe('article archive worker', () => {
 		expect(await response.json()).toEqual({ ok: true });
 	});
 
+	it('serves the default favicon without a session', async () => {
+		const svg = await SELF.fetch('http://example.com/favicon.svg');
+		expect(svg.status).toBe(200);
+		expect(svg.headers.get('content-type')).toContain('image/svg+xml');
+		expect(svg.headers.get('cache-control')).toContain('public');
+		const svgText = await svg.text();
+		expect(svgText).toContain('<svg');
+		expect(svgText).toContain('#0c6a52');
+
+		const ico = await SELF.fetch('http://example.com/favicon.ico');
+		expect(ico.status).toBe(200);
+		expect(ico.headers.get('content-type')).toContain('image/x-icon');
+		expect((await ico.arrayBuffer()).byteLength).toBeGreaterThan(0);
+
+		const apple = await SELF.fetch('http://example.com/apple-touch-icon.png');
+		expect(apple.status).toBe(200);
+		expect(apple.headers.get('content-type')).toContain('image/png');
+		expect((await apple.arrayBuffer()).byteLength).toBeGreaterThan(0);
+	});
+
+	it('includes favicon links on setup, login, and home', async () => {
+		const iconLinks = [
+			'<link rel="icon" href="/favicon.svg" type="image/svg+xml">',
+			'<link rel="icon" href="/favicon.ico" sizes="any">',
+			'<link rel="apple-touch-icon" href="/apple-touch-icon.png">',
+		];
+
+		const setup = await SELF.fetch('http://example.com/setup');
+		expect(setup.status).toBe(200);
+		const setupHtml = await setup.text();
+		for (const link of iconLinks) {
+			expect(setupHtml).toContain(link);
+		}
+
+		const { cookie } = await setupAdmin();
+		const login = await SELF.fetch('http://example.com/login', { redirect: 'manual' });
+		expect(login.status).toBe(200);
+		const loginHtml = await login.text();
+		for (const link of iconLinks) {
+			expect(loginHtml).toContain(link);
+		}
+
+		const home = await SELF.fetch('http://example.com/', { headers: { cookie } });
+		expect(home.status).toBe(200);
+		const homeHtml = await home.text();
+		for (const link of iconLinks) {
+			expect(homeHtml).toContain(link);
+		}
+	});
+
 	it('redirects the list to setup when no users exist', async () => {
 		const response = await SELF.fetch('http://example.com/', { redirect: 'manual' });
 		expect(response.status).toBe(302);

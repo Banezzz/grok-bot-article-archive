@@ -25,4 +25,14 @@
 			"bucket_name": "replace-me-r2-bucket",
 		},
 	],
+	"rules": [
+		{
+			"type": "Text",
+			"globs": ["**/*.svg"],
+		},
+		{
+			"type": "Data",
+			"globs": ["**/*.ico", "**/*.png"],
+		},
+	],
 }
