@@ -14,7 +14,7 @@ import {
 } from './i18n';
 import { FOLDER_PICKER_SCRIPT, FOLDER_PICKER_STYLE, folderPickerMarkup, folderPickerStyleTag } from './folder-picker';
 import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
-import type { ArticleSort, ArticleView, TagCount } from './store';
+import { isArticleShared, type ArticleSort, type ArticleView, type TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
 
@@ -477,6 +477,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
                 ${owner}
                 ${when ? `<time datetime="${escapeHtml(article.published_at ?? article.created_at)}">${escapeHtml(when)}</time>` : ''}
                 ${article.lang ? `<span class="badge">${escapeHtml(article.lang)}</span>` : ''}
+                ${isArticleShared(article) ? `<span class="badge">${escapeHtml(t(locale, 'sharedBadge'))}</span>` : ''}
                 ${source ? `<a href="${escapeHtml(source)}" rel="noreferrer noopener">${escapeHtml(t(locale, 'source'))}</a>` : ''}
               </div>
               ${articleTools(article, folders, current, locale)}
@@ -710,14 +711,10 @@ function overlaySeg(
   </span>`;
 }
 
-function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chrome): string {
+function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chrome, access: 'manage' | 'public'): string {
 	const locale = chrome.locale;
-	const source = safeHttpUrl(article.source_url);
+	const shared = isArticleShared(article);
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
-	const downloadHref = `${articlePath}/download`;
-	const sourceLink = source
-		? `<a href="${escapeHtml(source)}" rel="noreferrer noopener" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'source'))}</a>`
-		: '';
 	const lang = overlaySeg(t(locale, 'langToggle'), [
 		{ href: langSetHref('zh', articlePath), label: t(locale, 'langZh'), active: locale === 'zh' },
 		{ href: langSetHref('en', articlePath), label: t(locale, 'langEn'), active: locale === 'en' },
@@ -726,20 +723,43 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 		{ href: themeSetHref('light', articlePath), label: t(locale, 'themeLight'), active: chrome.theme === 'light' },
 		{ href: themeSetHref('dark', articlePath), label: t(locale, 'themeDark'), active: chrome.theme === 'dark' },
 	]);
-	const download = `<a href="${escapeHtml(downloadHref)}" style="color:#12211b;background:#9fe0c4;text-decoration:none;border-radius:8px;padding:6px 10px">${escapeHtml(t(locale, 'downloadHtml'))}</a>`;
+	if (access === 'public') {
+		return `<nav data-archive-chrome data-archive-share="public" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
+  <span style="color:#9fe0c4">${escapeHtml(t(locale, 'sharePublicNote'))}</span>
+  <span style="flex:1;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(article.title)}</span>
+  ${lang}
+  ${theme}
+</nav>`;
+	}
+
+	const source = safeHttpUrl(article.source_url);
+	const sourceLink = source
+		? `<a href="${escapeHtml(source)}" rel="noreferrer noopener" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'source'))}</a>`
+		: '';
+	const download = `<a href="${escapeHtml(`${articlePath}/download`)}" style="color:#12211b;background:#9fe0c4;text-decoration:none;border-radius:8px;padding:6px 10px">${escapeHtml(t(locale, 'downloadHtml'))}</a>`;
 	const starLabel = article.starred ? t(locale, 'unstar') : t(locale, 'star');
 	const star = `<form method="post" action="/star" style="margin:0">
     <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
     <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
     <button type="submit" style="appearance:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:${article.starred ? '#f5d76e' : '#f4f1ea'};border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${article.starred ? '★' : '☆'} ${escapeHtml(starLabel)}</button>
   </form>`;
+	const shareLabel = shared ? t(locale, 'unshare') : t(locale, 'share');
+	const share = `<form method="post" action="/share" style="margin:0">
+    <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
+    <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
+    <input type="hidden" name="shared" value="${shared ? '0' : '1'}">
+    <button type="submit" aria-label="${escapeHtml(t(locale, 'shareAria'))}" aria-pressed="${shared ? 'true' : 'false'}" style="appearance:none;border:1px solid ${shared ? 'rgba(159,224,196,.55)' : 'rgba(255,255,255,.22)'};background:${shared ? 'color-mix(in srgb,#9fe0c4 18%,transparent)' : 'transparent'};color:${shared ? '#9fe0c4' : '#f4f1ea'};border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${escapeHtml(shareLabel)}</button>
+  </form>`;
 	const folderForm =
 		folders.length === 0
 			? `<a href="/folders" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'createFirstFolder'))}</a>`
 			: folderPickerMarkup(article, folders, articlePath, locale, 'chrome');
-	return `<nav data-archive-chrome style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
+	const shareHint = shared ? `<span data-share-hint style="color:#9fe0c4;font-size:12px">${escapeHtml(t(locale, 'sharingOn'))}</span>` : '';
+	return `<nav data-archive-chrome data-archive-share="manage" data-article-shared="${shared ? '1' : '0'}" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
   <a href="/" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'backArchive'))}</a>
   <span style="flex:1;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(article.title)}</span>
+  ${shareHint}
+  ${share}
   ${star}
   ${folderForm}
   ${lang}
@@ -749,8 +769,15 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 </nav>`;
 }
 
-export function injectArchiveChrome(htmlResponse: Response, article: ArticleView, folders: FolderSummary[], chrome: Chrome): Response {
+export function injectArchiveChrome(
+	htmlResponse: Response,
+	article: ArticleView,
+	folders: FolderSummary[],
+	chrome: Chrome,
+	access: 'manage' | 'public' = 'manage',
+): Response {
 	const lightbox = lightboxInjection(chrome.locale);
+	const manage = access === 'manage';
 	return new HTMLRewriter()
 		.on('html', {
 			element(element) {
@@ -761,14 +788,18 @@ export function injectArchiveChrome(htmlResponse: Response, article: ArticleView
 		})
 		.on('head', {
 			element(element) {
-				element.append(folderPickerStyleTag(), { html: true });
+				if (manage) {
+					element.append(folderPickerStyleTag(), { html: true });
+				}
 				element.append(lightboxStyleTag(), { html: true });
 			},
 		})
 		.on('body', {
 			element(element) {
-				element.prepend(archiveBar(article, folders, chrome), { html: true });
-				element.append(FOLDER_PICKER_SCRIPT, { html: true });
+				element.prepend(archiveBar(article, folders, chrome, access), { html: true });
+				if (manage) {
+					element.append(FOLDER_PICKER_SCRIPT, { html: true });
+				}
 				element.append(lightbox, { html: true });
 			},
 		})
