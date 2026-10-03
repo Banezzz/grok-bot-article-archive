@@ -764,4 +764,172 @@ describe('article archive worker', () => {
 		expect(listHtml).toContain(`/thumb/photo-note`);
 		expect(listHtml).toContain('href="/a/photo-note"');
 	});
+
+	it('lets anyone with the link read a shared article and nothing else', async () => {
+		const admin = await setupAdmin();
+		const readerToken = await addUser(admin.cookie, READER_USER, READER_PASS);
+		const readerCookie = await login(READER_USER, READER_PASS);
+		const png =
+			'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+		expect((await upload(admin.token, { slug: 'private-note', title: 'Private note' })).status).toBe(200);
+		expect(
+			(
+				await upload(admin.token, {
+					slug: 'shared-note',
+					title: 'Shared garden',
+					html: '<!doctype html><html><head><title>Shared garden</title></head><body><h1>Shared garden</h1><p>Only this page.</p></body></html>',
+					thumbnail_base64: png,
+				})
+			).status,
+		).toBe(200);
+		expect((await upload(readerToken, { slug: 'reader-private', title: 'Reader private' })).status).toBe(200);
+
+		const metaBefore = (await (
+			await SELF.fetch('http://example.com/api/articles/shared-note', { headers: { cookie: admin.cookie } })
+		).json()) as { article: { shared: boolean } };
+		expect(metaBefore.article.shared).toBe(false);
+
+		const enable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie: admin.cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'shared-note', shared: '1', next: '/a/shared-note' }),
+			redirect: 'manual',
+		});
+		expect(enable.status).toBe(303);
+
+		const ownerPage = await SELF.fetch('http://example.com/a/shared-note', {
+			headers: { cookie: `${admin.cookie}; archive_lang=en` },
+		});
+		expect(ownerPage.status).toBe(200);
+		const ownerHtml = await ownerPage.text();
+		expect(ownerHtml).toContain('action="/share"');
+		expect(ownerHtml).toContain('name="shared" value="0"');
+		expect(ownerHtml).toContain('Anyone with the link can read this article.');
+		expect(ownerHtml).toContain('Stop sharing');
+
+		const list = await SELF.fetch('http://example.com/', { headers: { cookie: `${admin.cookie}; archive_lang=en` } });
+		expect(await list.text()).toContain('Shared');
+
+		const anonymousArticle = await SELF.fetch('http://example.com/a/shared-note', {
+			headers: { cookie: 'archive_lang=en' },
+			redirect: 'manual',
+		});
+		expect(anonymousArticle.status).toBe(200);
+		const sharedHtml = await anonymousArticle.text();
+		expect(sharedHtml).toContain('Shared garden');
+		expect(sharedHtml).toContain('Only this page.');
+		expect(sharedHtml).toContain('data-archive-share="public"');
+		expect(sharedHtml).toContain('Shared article');
+		expect(sharedHtml).not.toContain('href="/"');
+		expect(sharedHtml).not.toContain('/folders');
+		expect(sharedHtml).not.toContain('/settings');
+		expect(sharedHtml).not.toContain('/admin');
+		expect(sharedHtml).not.toContain('action="/star"');
+		expect(sharedHtml).not.toContain('action="/share"');
+		expect(sharedHtml).not.toContain('/a/shared-note/download');
+		expect(sharedHtml).not.toContain('private-note');
+		expect(sharedHtml).not.toContain('reader-private');
+
+		const anonymousThumb = await SELF.fetch('http://example.com/thumb/shared-note', { redirect: 'manual' });
+		expect(anonymousThumb.status).toBe(200);
+		expect(anonymousThumb.headers.get('content-type')).toContain('image/png');
+
+		const denied = [
+			'http://example.com/',
+			'http://example.com/?q=garden',
+			'http://example.com/folders',
+			'http://example.com/settings',
+			'http://example.com/admin/users',
+			'http://example.com/a/private-note',
+			'http://example.com/a/reader-private',
+			'http://example.com/a/shared-note/download',
+			'http://example.com/thumb/private-note',
+		];
+		for (const url of denied) {
+			const response = await SELF.fetch(url, { redirect: 'manual' });
+			expect(response.status, url).toBe(302);
+			expect(response.headers.get('location'), url).toContain('/login');
+		}
+
+		expect((await SELF.fetch('http://example.com/api/articles')).status).toBe(401);
+		expect((await SELF.fetch('http://example.com/api/articles?q=Shared')).status).toBe(401);
+		expect((await SELF.fetch('http://example.com/api/articles/shared-note')).status).toBe(401);
+		expect((await SELF.fetch('http://example.com/api/tags')).status).toBe(401);
+
+		const shareDenied = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'shared-note', shared: '0', next: '/a/shared-note' }),
+			redirect: 'manual',
+		});
+		expect(shareDenied.status).toBe(302);
+		expect(shareDenied.headers.get('location')).toContain('/login');
+
+		const readerList = (await (
+			await SELF.fetch('http://example.com/api/articles', { headers: { cookie: readerCookie } })
+		).json()) as { articles: Array<{ slug: string }> };
+		expect(readerList.articles.map((row) => row.slug)).toEqual(['reader-private']);
+
+		const readerShared = await SELF.fetch('http://example.com/a/shared-note', {
+			headers: { cookie: `${readerCookie}; archive_lang=en` },
+		});
+		expect(readerShared.status).toBe(200);
+		const readerSharedHtml = await readerShared.text();
+		expect(readerSharedHtml).toContain('Shared garden');
+		expect(readerSharedHtml).toContain('data-archive-share="public"');
+		expect(readerSharedHtml).not.toContain('action="/share"');
+
+		const readerCannotShare = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie: readerCookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'shared-note', shared: '0', next: '/a/shared-note' }),
+			redirect: 'manual',
+		});
+		expect(readerCannotShare.status).toBe(404);
+
+		const disable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie: admin.cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'shared-note', shared: '0', next: '/a/shared-note' }),
+			redirect: 'manual',
+		});
+		expect(disable.status).toBe(303);
+
+		const afterOff = await SELF.fetch('http://example.com/a/shared-note', { redirect: 'manual' });
+		expect(afterOff.status).toBe(302);
+		expect(afterOff.headers.get('location')).toContain('/login');
+		expect((await SELF.fetch('http://example.com/thumb/shared-note', { redirect: 'manual' })).status).toBe(302);
+	});
+
+	it('lets an admin share another user article and keeps new articles private', async () => {
+		const admin = await setupAdmin();
+		const readerToken = await addUser(admin.cookie, READER_USER, READER_PASS);
+		const readerCookie = await login(READER_USER, READER_PASS);
+		expect((await upload(readerToken, { slug: 'reader-share', title: 'Reader share' })).status).toBe(200);
+
+		const created = (await (
+			await SELF.fetch('http://example.com/api/articles/reader-share', { headers: { cookie: readerCookie } })
+		).json()) as { article: { shared: boolean } };
+		expect(created.article.shared).toBe(false);
+
+		expect((await SELF.fetch('http://example.com/a/reader-share', { redirect: 'manual' })).status).toBe(302);
+
+		const enable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie: admin.cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'reader-share', shared: '1', next: '/a/reader-share' }),
+			redirect: 'manual',
+		});
+		expect(enable.status).toBe(303);
+
+		const anonymous = await SELF.fetch('http://example.com/a/reader-share', { redirect: 'manual' });
+		expect(anonymous.status).toBe(200);
+		expect(await anonymous.text()).toContain('Garden');
+
+		const ownerToggle = await SELF.fetch('http://example.com/a/reader-share', {
+			headers: { cookie: `${readerCookie}; archive_lang=en` },
+		});
+		expect(await ownerToggle.text()).toContain('action="/share"');
+	});
 });

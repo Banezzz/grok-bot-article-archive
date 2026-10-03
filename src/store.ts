@@ -18,6 +18,7 @@ export type ArticleRow = {
 	thumbnail_key: string | null;
 	owner_id: string | null;
 	owner_username?: string | null;
+	shared: number;
 };
 
 export type TagRow = {
@@ -234,12 +235,33 @@ export function articlePublic(article: ArticleView) {
 		owner_username: article.owner_username ?? null,
 		starred: article.starred,
 		folders: article.folders,
+		shared: isArticleShared(article),
 		url: `/a/${article.slug}`,
 	};
 }
 
+export function isArticleShared(article: { shared?: number | boolean | string | null }): boolean {
+	return article.shared === 1 || article.shared === true || article.shared === '1';
+}
+
 export function canViewArticle(session: { id: string; role: string }, article: { owner_id: string | null }): boolean {
 	return session.role === 'admin' || article.owner_id === session.id;
+}
+
+export function canReadArticle(
+	session: { id: string; role: string } | null,
+	article: { owner_id: string | null; shared?: number | boolean | null },
+): boolean {
+	if (session && canViewArticle(session, article)) {
+		return true;
+	}
+	return isArticleShared(article);
+}
+
+export async function setArticleShared(env: Env, slug: string, shared: boolean): Promise<void> {
+	await env.DB.prepare('UPDATE articles SET shared = ?, updated_at = ? WHERE slug = ?')
+		.bind(shared ? 1 : 0, new Date().toISOString(), slug)
+		.run();
 }
 
 export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleRow | null> {

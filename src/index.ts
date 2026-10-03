@@ -15,6 +15,7 @@ import {
 } from './pages';
 import {
 	articlePublic,
+	canReadArticle,
 	canViewArticle,
 	deleteArticle,
 	getArticleBySlug,
@@ -25,6 +26,7 @@ import {
 	parseTagQuery,
 	parseUploadBody,
 	resolveArticleSort,
+	setArticleShared,
 	sortCookie,
 	upsertArticle,
 } from './store';
@@ -232,6 +234,12 @@ function formRedirect(url: URL, next: string): Response {
 	});
 }
 
+async function loginChallenge(request: Request, env: Env): Promise<Response> {
+	const url = new URL(request.url);
+	const empty = (await countUsers(env)) === 0;
+	return unauthorized(request, new URL(empty ? '/setup' : '/login', url.origin).toString());
+}
+
 async function requireVisibleArticle(env: Env, session: SessionUser, slug: string) {
 	if (!isValidSlug(slug)) {
 		throw new HttpError(404, 'not found');
@@ -252,6 +260,19 @@ async function handleStar(request: Request, env: Env, session: SessionUser): Pro
 	const next = String(form.get('next') ?? '/');
 	const row = await requireVisibleArticle(env, session, slug);
 	await toggleArticleStar(env, session.id, row.id);
+	return formRedirect(new URL(request.url), next);
+}
+
+async function handleShare(request: Request, env: Env, session: SessionUser): Promise<Response> {
+	if (request.method !== 'POST') {
+		return methodNotAllowed('POST');
+	}
+	const form = await request.formData();
+	const slug = String(form.get('slug') ?? '');
+	const next = String(form.get('next') ?? `/a/${slug}`);
+	const shared = String(form.get('shared') ?? '') === '1';
+	const row = await requireVisibleArticle(env, session, slug);
+	await setArticleShared(env, row.slug, shared);
 	return formRedirect(new URL(request.url), next);
 }
 
@@ -385,18 +406,24 @@ async function handleArticleApi(request: Request, env: Env, slug: string, sessio
 	return json({ ok: true, article: articlePublic(row) });
 }
 
-async function handleArticlePage(env: Env, slug: string, session: SessionUser, chrome: Chrome): Promise<Response> {
+async function handleArticlePage(
+	request: Request,
+	env: Env,
+	slug: string,
+	session: SessionUser | null,
+	chrome: Chrome,
+): Promise<Response> {
 	if (!isValidSlug(slug)) {
-		return notFoundPage(chrome);
+		return session ? notFoundPage(chrome) : loginChallenge(request, env);
 	}
-	const row = await getArticleViewBySlug(env, slug, session.id);
-	if (!row || !canViewArticle(session, row)) {
-		return notFoundPage(chrome);
+	const row = await getArticleViewBySlug(env, slug, session?.id);
+	if (!row || !canReadArticle(session, row)) {
+		return session ? notFoundPage(chrome) : loginChallenge(request, env);
 	}
 
 	const object = await env.ARTICLES.get(row.r2_key);
 	if (!object) {
-		return notFoundPage(chrome);
+		return session ? notFoundPage(chrome) : loginChallenge(request, env);
 	}
 
 	const headers = new Headers({
@@ -411,8 +438,9 @@ async function handleArticlePage(env: Env, slug: string, session: SessionUser, c
 		headers.set('etag', object.httpEtag);
 	}
 
-	const folders = await listFolders(env, session.id);
-	return injectArchiveChrome(new Response(object.body, { headers }), row, folders, chrome);
+	const canManage = Boolean(session && canViewArticle(session, row));
+	const folders = canManage && session ? await listFolders(env, session.id) : [];
+	return injectArchiveChrome(new Response(object.body, { headers }), row, folders, chrome, canManage ? 'manage' : 'public');
 }
 
 async function handleArticleDownload(env: Env, slug: string, session: SessionUser, chrome: Chrome): Promise<Response> {
@@ -474,13 +502,17 @@ function handlePrefCookie(request: Request, kind: 'lang' | 'theme'): Response {
 	});
 }
 
-async function handleThumbnail(env: Env, slug: string, session: SessionUser): Promise<Response> {
+async function handleThumbnail(request: Request, env: Env, slug: string, session: SessionUser | null): Promise<Response> {
+	const notFound = new Response('Not Found', { status: 404, headers: { 'cache-control': 'private, no-store' } });
 	if (!isValidSlug(slug)) {
-		return new Response('Not Found', { status: 404, headers: { 'cache-control': 'private, no-store' } });
+		return session ? notFound : loginChallenge(request, env);
 	}
 	const row = await getArticleBySlug(env, slug);
-	if (!row?.thumbnail_key || !canViewArticle(session, row)) {
-		return new Response('Not Found', { status: 404, headers: { 'cache-control': 'private, no-store' } });
+	if (!row || !canReadArticle(session, row)) {
+		return session ? notFound : loginChallenge(request, env);
+	}
+	if (!row.thumbnail_key) {
+		return notFound;
 	}
 	const object = await env.ARTICLES.get(row.thumbnail_key);
 	if (!object) {
@@ -640,6 +672,24 @@ export default {
 			}
 
 			const session = await getSession(request, env);
+
+			const thumbPage = /^\/thumb\/([^/]+)$/.exec(pathname);
+			if (thumbPage?.[1]) {
+				if (request.method !== 'GET') {
+					return methodNotAllowed('GET');
+				}
+				return await handleThumbnail(request, env, decodeURIComponent(thumbPage[1]), session);
+			}
+
+			const articlePage = /^\/a\/([^/]+)$/.exec(pathname);
+			if (articlePage?.[1]) {
+				if (request.method !== 'GET') {
+					return methodNotAllowed('GET');
+				}
+				const slug = decodeURIComponent(articlePage[1]);
+				return await handleArticlePage(request, env, slug, session, ui(request, `/a/${encodeURIComponent(slug)}`));
+			}
+
 			if (!isPublicPath(pathname, request.method) && !isWriteApi(pathname, request.method) && !session) {
 				const empty = (await countUsers(env)) === 0;
 				return unauthorized(request, new URL(empty ? '/setup' : '/login', url.origin).toString());
@@ -715,6 +765,9 @@ export default {
 			if (pathname === '/star') {
 				return await handleStar(request, env, session!);
 			}
+			if (pathname === '/share') {
+				return await handleShare(request, env, session!);
+			}
 			if (pathname === '/folders/membership') {
 				return await handleFolderMembership(request, env, session!);
 			}
@@ -746,14 +799,6 @@ export default {
 				return await handleAdminUserAction(request, env, session, decodeURIComponent(adminAction[1]), adminAction[2]);
 			}
 
-			const thumbPage = /^\/thumb\/([^/]+)$/.exec(pathname);
-			if (thumbPage?.[1]) {
-				if (request.method !== 'GET') {
-					return methodNotAllowed('GET');
-				}
-				return await handleThumbnail(env, decodeURIComponent(thumbPage[1]), session!);
-			}
-
 			const articleDownload = /^\/a\/([^/]+)\/download$/.exec(pathname);
 			if (articleDownload?.[1]) {
 				if (request.method !== 'GET') {
@@ -761,15 +806,6 @@ export default {
 				}
 				const slug = decodeURIComponent(articleDownload[1]);
 				return await handleArticleDownload(env, slug, session!, ui(request, `/a/${encodeURIComponent(slug)}`));
-			}
-
-			const articlePage = /^\/a\/([^/]+)$/.exec(pathname);
-			if (articlePage?.[1]) {
-				if (request.method !== 'GET') {
-					return methodNotAllowed('GET');
-				}
-				const slug = decodeURIComponent(articlePage[1]);
-				return await handleArticlePage(env, slug, session!, ui(request, `/a/${encodeURIComponent(slug)}`));
 			}
 
 			if (isApiPath(pathname)) {

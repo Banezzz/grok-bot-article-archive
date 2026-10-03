@@ -25,13 +25,14 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `GET /folders` · `POST /folders` | Session | Create folders; rename / delete / reorder via `POST /folders/:id/{rename,delete,move}` |
 | `POST /folders/membership` | Session | Set which of *your* folders contain an article (`folder_id` checkboxes, `slug`, `next`) |
 | `POST /star` | Session | Toggle your star on an article (`slug`, `next`) |
+| `POST /share` | Session (owner or admin) | Turn public sharing on or off for one article (`slug`, `shared=1` or `0`, `next`). Default is private. |
 | `GET /settings` | Session | Upload token prefix; rotate and copy once |
 | `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens |
-| `GET /a/:slug` | Session | Stored HTML (404 if not owner and not admin). Chrome includes HTML download, star, folders, and a click-to-zoom image lightbox. Stored R2 HTML is not rewritten. |
+| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus lang/theme). Stored R2 HTML is not rewritten. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
-| `GET /thumb/:slug` | Session | Thumbnail (same visibility) |
-| `GET /api/articles` | Session | Metadata JSON; same list filters as `/` |
-| `GET /api/articles/:slug` | Session | One article if visible |
+| `GET /thumb/:slug` | Session, or public when that article is shared | Thumbnail (same visibility as the article page) |
+| `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Shared articles are not listed without a session. |
+| `GET /api/articles/:slug` | Session | One article if visible to that user. Not available anonymously, even when the article is shared. |
 | `GET /api/tags` | Session | Tags with counts over visible articles |
 | `POST /api/upload` | Bearer = that user's upload token | Store HTML; owner is the token's user |
 | `DELETE /api/articles/:slug` | Bearer = user token | Delete if owner or admin token |
@@ -139,7 +140,7 @@ npm run db:migrate:remote
 npx wrangler deploy
 ```
 
-`db:migrate:remote` applies `0001`–`0004` (articles, tags, users, folders/stars).
+`db:migrate:remote` applies `0001`–`0005` (articles, tags, users, folders/stars, per-article share).
 
 Visit `https://<YOUR_WORKER>.workers.dev/setup` once, then `/login`.
 
@@ -167,6 +168,12 @@ npm run typecheck
 - Another user's folders and stars are never shown.
 
 D1 migration `migrations/0004_folders_stars.sql` creates `folders`, `folder_articles`, and `article_stars`.
+
+## Public share links
+
+Each article stays private until its owner (or an admin) turns sharing on from the article page. The share link is the normal article URL (`/a/<slug>`). Anyone who has that link can read that one article and its thumbnail. They cannot open the library, search, folders, stars, settings, admin, user lists, or any other article. Unauthenticated list and metadata APIs stay closed. Turning sharing off restores the login gate immediately.
+
+Apply `migrations/0005_article_share.sql` with the other D1 migrations (`npm run db:migrate:local` or `npm run db:migrate:remote`) before using the toggle. Existing rows default to private.
 
 ## Archive bot
 
@@ -267,7 +274,7 @@ UPLOAD_TOKEN=... \
 The password gate is enough to use the archive without Zero Trust. If you later put the Worker behind [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/), you can:
 
 1. Create an Access application for the Worker hostname.
-2. Require your identity provider for `GET /`, `/a/*`, and `/api/articles*`.
+2. Require your identity provider for `GET /` and `/api/articles*`. If you want per-article public share links, do not put Access in front of `GET /a/:slug` or `GET /thumb/:slug` (or add a bypass for those paths). Keep downloads and the rest of `/a/*` behind Access if you use it.
 3. Leave `POST /api/upload` and `DELETE /api/articles/:slug` out of Access (or use a service token) so the bot can still send `Authorization: Bearer`.
 4. Keep account login as a second factor, or stop using `/login` once Access is the only entry path.
 
@@ -278,7 +285,7 @@ Access is an upgrade, not a requirement. It is not available on every Free-plan 
 ```
 src/            Worker entry, auth, D1/R2 store, HTML pages, injected image lightbox
 assets/icons/   Default favicon and app icons the Worker serves as public static files
-migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars)
+migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars, 0005 article share)
 scripts/        Example upload curl
 docs/           Deploy guide, bot handoff, upload API, HTML template notes
 skills/         Packaged archive skills (image crawl)
