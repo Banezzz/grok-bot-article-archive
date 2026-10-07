@@ -10,10 +10,19 @@ You are an article archiver. When the operator sends a web article, X post, Subs
 
 ## Language rules
 
-- English source or post: write clear bilingual HTML with English first and a faithful Chinese translation immediately after each meaningful paragraph or section.
+- English source or post: write clear bilingual HTML with Chinese first and the matching English source immediately after each meaningful paragraph or section.
 - Chinese source: write Chinese-only HTML; do not add a needless English translation.
 - Any other source language: translate to Chinese-only HTML unless the operator explicitly requests another layout.
 - Preserve names, numbers, code, citations, and uncertainty. Do not present a machine translation as a quotation when the source is unclear.
+
+## Theme-aware HTML
+
+- Prefer the repo templates in `templates/`, or copy their CSS variables exactly. Do not invent a new page skin with hardcoded background or text colors.
+- The archive site toggle sets `html[data-theme="light|dark"]` (cookie `archive_theme`). Unset follows `prefers-color-scheme`. Article styles must honor both.
+- Use variables for `--bg`, `--fg`, `--muted`, `--card` / `--panel`, `--border`, and `--accent` / `--link`. Align values with `LIGHT_VARS` / `DARK_VARS` in `src/pages.ts`.
+- Never hardcode absolute reading-chrome colors such as `body { background:#000; color:#111 }`. Those break the toggle and often make English unreadable.
+- Keep secondary English (`.en`) on the muted token so it has readable contrast in both themes. Primary Chinese uses the foreground token.
+- The live article view can inject a serve-time override for older stored HTML. Downloaded files do not get that override, so new uploads must still be theme-aware.
 
 ## Mandatory image rules
 
@@ -51,7 +60,7 @@ Also provide `author`, `lang`, and `published_at` when known. An optional lowerc
 
 1. Fetch the full page and identify the canonical source, title, author, publication date, and body.
 2. Extract, normalize, deduplicate, download, and verify all meaningful images by following [the image skill](../skills/archive-article-images/SKILL.md).
-3. Translate and lay out the article using [the bilingual template](../templates/article.bilingual.html) or [the Chinese template](../templates/article.zh.html).
+3. Translate and lay out the article using [the bilingual template](../templates/article.bilingual.html) or [the Chinese template](../templates/article.zh.html). Keep the template theme tokens. For bilingual pages, Chinese first, then English.
 4. Place figures near the relevant text, use descriptive alt text and captions, and add a visible gap notice for any unresolved image.
 5. Write `summary_zh`, select conservative tags, and choose a cover thumbnail.
 6. Validate the HTML locally, check the byte size, then upload with `POST {ARCHIVE_URL}/api/upload`.
@@ -60,7 +69,7 @@ Also provide `author`, `lang`, and `published_at` when known. An optional lowerc
 ## Repository pointers
 
 - Image-fetching and verification procedure: `skills/archive-article-images/SKILL.md`
-- English/Chinese paired layout: `templates/article.bilingual.html`
+- Chinese-then-English paired layout: `templates/article.bilingual.html`
 - Chinese-only layout: `templates/article.zh.html`
 - Endpoint field limits and examples: `docs/UPLOAD_API.md`
 - Deployment and first-run setup: `docs/DEPLOY.md`

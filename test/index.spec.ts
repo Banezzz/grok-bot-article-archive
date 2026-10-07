@@ -699,6 +699,87 @@ describe('article archive worker', () => {
 		expect(html).toContain('/theme?set=light');
 	});
 
+	it('injects a theme override so stored article colors follow the site toggle', async () => {
+		const { cookie, token } = await setupAdmin();
+		const storedHtml = `<!doctype html><html><head><title>Hardcoded dark</title><style>
+body { background:#050505; color:#161616; }
+main { background:#000; }
+.en { color:#1b1b1b; }
+.zh { color:#111; }
+a { color:#0b3d2e; }
+</style></head><body><main><section class="pair"><p class="zh" lang="zh">中文段落</p><p class="en" lang="en">English paragraph</p></section><p><a href="https://example.com/source">source</a></p></main></body></html>`;
+		expect((await upload(token, { slug: 'hardcoded-theme', title: 'Hardcoded dark', html: storedHtml })).status).toBe(200);
+
+		const light = await SELF.fetch('http://example.com/a/hardcoded-theme', {
+			headers: { cookie: `${cookie}; archive_theme=light; archive_lang=en` },
+		});
+		expect(light.status).toBe(200);
+		const lightHtml = await light.text();
+		expect(lightHtml).toContain('data-theme="light"');
+		expect(lightHtml).toContain('data-archive-theme-override');
+		expect(lightHtml).toContain('html[data-theme="light"]');
+		expect(lightHtml).toContain('html[data-theme="dark"]');
+		expect(lightHtml).toContain('prefers-color-scheme: dark');
+		expect(lightHtml).toContain('html:not([data-theme="light"])');
+		expect(lightHtml).toContain('--bg:#f3f0e8');
+		expect(lightHtml).toContain('--fg:#1a1814');
+		expect(lightHtml).toContain('--muted:#6b645a');
+		expect(lightHtml).toContain('--bg:#12100e');
+		expect(lightHtml).toContain('--fg:#f4efe6');
+		expect(lightHtml).toContain('background: var(--bg) !important');
+		expect(lightHtml).toContain('.en');
+		expect(lightHtml).toContain('.zh');
+		expect(lightHtml).toContain('English paragraph');
+		expect(lightHtml).toContain('data-archive-chrome');
+		expect(lightHtml).toContain('/theme?set=dark');
+
+		const dark = await SELF.fetch('http://example.com/a/hardcoded-theme', {
+			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },
+		});
+		const darkHtml = await dark.text();
+		expect(darkHtml).toContain('data-theme="dark"');
+		expect(darkHtml).toContain('data-archive-theme-override');
+		expect(darkHtml).toContain('--bg:#12100e');
+
+		const unset = await SELF.fetch('http://example.com/a/hardcoded-theme', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		const unsetHtml = await unset.text();
+		expect(unsetHtml).not.toMatch(/<html\b[^>]*\bdata-theme=/);
+		expect(unsetHtml).toContain('data-archive-theme-override');
+		expect(unsetHtml).toContain('prefers-color-scheme: dark');
+
+		const object = await env.ARTICLES.get('articles/hardcoded-theme.html');
+		expect(await object!.text()).toBe(storedHtml);
+
+		const download = await SELF.fetch('http://example.com/a/hardcoded-theme/download', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		expect(download.status).toBe(200);
+		const downloaded = await download.text();
+		expect(downloaded).toBe(storedHtml);
+		expect(downloaded).not.toContain('data-archive-theme-override');
+
+		const enable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'hardcoded-theme', shared: '1', next: '/a/hardcoded-theme' }),
+			redirect: 'manual',
+		});
+		expect(enable.status).toBe(303);
+
+		const shared = await SELF.fetch('http://example.com/a/hardcoded-theme', {
+			headers: { cookie: 'archive_theme=dark; archive_lang=en' },
+		});
+		expect(shared.status).toBe(200);
+		const sharedHtml = await shared.text();
+		expect(sharedHtml).toContain('data-archive-share="public"');
+		expect(sharedHtml).toContain('data-theme="dark"');
+		expect(sharedHtml).toContain('data-archive-theme-override');
+		expect(sharedHtml).toContain('English paragraph');
+		expect(sharedHtml).not.toContain('href="/"');
+	});
+
 	it('injects an image lightbox on article and list pages without rewriting stored HTML', async () => {
 		const { cookie, token } = await setupAdmin();
 		const png =

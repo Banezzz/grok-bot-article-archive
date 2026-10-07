@@ -2,9 +2,11 @@
 
 The templates in `templates/` are deliberately dependency-free HTML documents. Copy one, replace its `{{PLACEHOLDER}}` values, and generate the article body before uploading. Do not add a remote stylesheet, script, font, image CDN, or tracker: an archive should remain readable when the source disappears.
 
+Prefer these repo templates (or equivalent CSS). Do not invent a new reading chrome with hardcoded absolute background or text colors. Those fight the archive site theme toggle and often leave secondary English unreadable.
+
 ## Choose a template
 
-- [`article.bilingual.html`](../templates/article.bilingual.html) — English source or post. Keep English first, then the matching Chinese translation in each `.pair` block.
+- [`article.bilingual.html`](../templates/article.bilingual.html) — English source or post. Keep Chinese first, then the matching English source in each `.pair` block.
 - [`article.zh.html`](../templates/article.zh.html) — Chinese source. Use a single Chinese reading flow without duplicated English text.
 - For another source language, translate to Chinese and use the Chinese template unless the operator requests a bilingual presentation.
 
@@ -14,16 +16,26 @@ Replace `{{TITLE}}`, `{{AUTHOR}}`, `{{PUBLISHED_AT}}`, `{{PUBLISHED_AT_LABEL}}`,
 
 `{{SOURCE_URL}}` should be the canonical source URL. Add `rel="noreferrer noopener"` to outbound links, as the included templates do. The archive API separately receives the same source URL in JSON as `source_url`.
 
+## Theme-aware CSS
+
+The archive chrome sets `html[data-theme="light"]` or `html[data-theme="dark"]` from the `archive_theme` cookie. Unset follows `prefers-color-scheme`. Article CSS must flip with those signals.
+
+- Use CSS variables for background, text, muted secondary text, links, borders, and panels. Align tokens with `LIGHT_VARS` / `DARK_VARS` in `src/pages.ts` (`--bg`, `--fg`, `--muted`, `--card`, `--border`, `--accent`).
+- Set the dark palette on `html[data-theme="dark"]` and on `html:not([data-theme="light"])` inside `@media (prefers-color-scheme: dark)`. Set the light palette on `:root` and on `html[data-theme="light"]`.
+- Color `body`, headings, paragraphs, lists, links, and panels with `var(--bg)`, `var(--fg)`, `var(--muted)`, `var(--accent)`, `var(--card)`, and `var(--border)`. Do not hardcode `#000`, `#111`, `#fff`, or similar on the reading chrome.
+- Keep the secondary language (English in bilingual pages, via `.en`) on `var(--muted)` so it stays readable in both themes. Primary Chinese text uses `var(--fg)`.
+- The article view injects a late override stylesheet so already-stored HTML follows the toggle without a re-upload. Downloaded raw HTML does not receive that override; new archives must still ship theme-aware CSS so offline copies work.
+
 ## Language layout
 
 ### Bilingual
 
-Use one `.pair` per meaningful unit:
+Use one `.pair` per meaningful unit. Chinese first, then the matching English source:
 
 ```html
 <section class="pair">
-  <p class="en" lang="en">English paragraph.</p>
   <p class="zh" lang="zh">对应的中文翻译。</p>
+  <p class="en" lang="en">English paragraph.</p>
 </section>
 ```
 
@@ -71,4 +83,5 @@ Record the same gap in the upload report: URL, attempts, failure reason, and whe
 3. Confirm the cover or first useful chart is available as the thumbnail.
 4. Measure the JSON body and HTML bytes; stay below 8 MiB.
 5. Confirm no remote assets are required for reading.
-6. Upload with the API documented in [`UPLOAD_API.md`](UPLOAD_API.md), then verify the returned article path.
+6. Confirm colors come from theme variables and respond to `data-theme` plus `prefers-color-scheme`. Flip both themes mentally: body, primary text, muted English, links, and panels must stay legible.
+7. Upload with the API documented in [`UPLOAD_API.md`](UPLOAD_API.md), then verify the returned article path.
