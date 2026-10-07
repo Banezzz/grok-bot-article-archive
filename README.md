@@ -28,7 +28,7 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `POST /share` | Session (owner or admin) | Turn public sharing on or off for one article (`slug`, `shared=1` or `0`, `next`). Default is private. |
 | `GET /settings` | Session | Upload token prefix; rotate and copy once |
 | `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens |
-| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus lang/theme). Stored R2 HTML is not rewritten. |
+| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus lang/theme). Serve-time injection adds chrome, lightbox, and a theme-override stylesheet so the light/dark toggle restyles the article body; stored R2 HTML is unchanged. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
 | `GET /thumb/:slug` | Session, or public when that article is shared | Thumbnail (same visibility as the article page) |
 | `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Shared articles are not listed without a session. |
@@ -177,7 +177,7 @@ Apply `migrations/0005_article_share.sql` with the other D1 migrations (`npm run
 
 ## Archive bot
 
-To clone this pipeline on another assistant, paste [docs/BOT_HANDOFF.md](docs/BOT_HANDOFF.md) into the bot, attach [skills/archive-article-images/SKILL.md](skills/archive-article-images/SKILL.md), and use the shells under `templates/` (notes in [docs/HTML_TEMPLATES.md](docs/HTML_TEMPLATES.md)). Full JSON contract: [docs/UPLOAD_API.md](docs/UPLOAD_API.md). Set `ARCHIVE_URL` and the upload token at runtime only.
+To clone this pipeline on another assistant, paste [docs/BOT_HANDOFF.md](docs/BOT_HANDOFF.md) into the bot, attach [skills/archive-article-images/SKILL.md](skills/archive-article-images/SKILL.md), and use the shells under `templates/` (notes in [docs/HTML_TEMPLATES.md](docs/HTML_TEMPLATES.md)). New archives must use those theme tokens (`data-theme` plus `prefers-color-scheme`); do not hardcode body or text colors. Full JSON contract: [docs/UPLOAD_API.md](docs/UPLOAD_API.md). Set `ARCHIVE_URL` and the upload token at runtime only.
 
 
 The intended writer is a local or scheduled bot that POSTs captured article HTML.

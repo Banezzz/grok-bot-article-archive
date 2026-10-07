@@ -6,24 +6,53 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{{TITLE}}</title>
   <style>
+    /* Theme tokens must stay aligned with LIGHT_VARS / DARK_VARS in src/pages.ts.
+       Honor html[data-theme] from the archive chrome; fall back to prefers-color-scheme. */
     :root {
-      color-scheme: light dark;
-      --fg: #1c1916;
-      --muted: #625b52;
-      --border: #e4dfd6;
-      --bg: #f6f4ef;
-      --panel: #fffdf9;
-      --link: #155e75;
+      color-scheme: light;
+      --bg: #f3f0e8;
+      --fg: #1a1814;
+      --muted: #6b645a;
+      --card: #fffdf8;
+      --border: #e4ddd0;
+      --accent: #0c6a52;
+      --link: var(--accent);
+      --panel: var(--card);
     }
     @media (prefers-color-scheme: dark) {
-      :root {
-        --fg: #f3efe8;
-        --muted: #b8afa4;
-        --border: #3a342d;
-        --bg: #161411;
-        --panel: #211e1a;
-        --link: #8bd5e8;
+      html:not([data-theme="light"]) {
+        color-scheme: dark;
+        --bg: #12100e;
+        --fg: #f4efe6;
+        --muted: #b3aaa0;
+        --card: #1d1a16;
+        --border: #3b342c;
+        --accent: #86d4b0;
+        --link: var(--accent);
+        --panel: var(--card);
       }
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #12100e;
+      --fg: #f4efe6;
+      --muted: #b3aaa0;
+      --card: #1d1a16;
+      --border: #3b342c;
+      --accent: #86d4b0;
+      --link: var(--accent);
+      --panel: var(--card);
+    }
+    html[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f3f0e8;
+      --fg: #1a1814;
+      --muted: #6b645a;
+      --card: #fffdf8;
+      --border: #e4ddd0;
+      --accent: #0c6a52;
+      --link: var(--accent);
+      --panel: var(--card);
     }
     * { box-sizing: border-box; }
     body {

@@ -26,6 +26,54 @@ export type Chrome = {
 
 const LIGHT_VARS = `--bg:#f3f0e8; --fg:#1a1814; --muted:#6b645a; --card:#fffdf8; --border:#e4ddd0; --accent:#0c6a52; --accent-fg:#fff; --shadow:0 1px 2px rgba(26,24,20,.05), 0 10px 28px rgba(26,24,20,.05); --ring:color-mix(in srgb, var(--accent) 28%, transparent); --danger:#9b2c20;`;
 const DARK_VARS = `--bg:#12100e; --fg:#f4efe6; --muted:#b3aaa0; --card:#1d1a16; --border:#3b342c; --accent:#86d4b0; --accent-fg:#10211a; --shadow:0 1px 2px rgba(0,0,0,.28), 0 14px 32px rgba(0,0,0,.22); --ring:color-mix(in srgb, var(--accent) 32%, transparent); --danger:#e07a70;`;
+const THEME_TOKEN_ALIASES = `--link:var(--accent); --panel:var(--card);`;
+
+/** Late-injected onto /a/:slug so stored articles follow the site theme toggle. Not written to R2. */
+const ARTICLE_THEME_OVERRIDE = `
+html { color-scheme: light; ${LIGHT_VARS} ${THEME_TOKEN_ALIASES} }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) { color-scheme: dark; ${DARK_VARS} ${THEME_TOKEN_ALIASES} }
+}
+html[data-theme="dark"] { color-scheme: dark; ${DARK_VARS} ${THEME_TOKEN_ALIASES} }
+html[data-theme="light"] { color-scheme: light; ${LIGHT_VARS} ${THEME_TOKEN_ALIASES} }
+html body {
+  background: var(--bg) !important;
+  background-color: var(--bg) !important;
+  color: var(--fg) !important;
+}
+html body > :not([data-archive-chrome]):not(#archive-lightbox):not(script):not(style) {
+  background-color: transparent !important;
+  color: var(--fg) !important;
+}
+html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not(#archive-lightbox):not(#archive-lightbox *) {
+  background-color: transparent !important;
+  color: var(--fg) !important;
+}
+html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not(#archive-lightbox *) {
+  color: var(--fg) !important;
+}
+html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not(#archive-lightbox *) {
+  color: var(--muted) !important;
+}
+html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not(#archive-lightbox *) {
+  color: var(--accent) !important;
+}
+html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not(#archive-lightbox *) {
+  border-color: var(--border) !important;
+}
+html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *) {
+  background: var(--card) !important;
+  background-color: var(--card) !important;
+  color: var(--fg) !important;
+}
+html body blockquote:not([data-archive-chrome] *):not(#archive-lightbox *) {
+  border-left-color: var(--border) !important;
+}
+`;
+
+export function articleThemeOverrideStyleTag(): string {
+	return `<style data-archive-theme-override>${ARTICLE_THEME_OVERRIDE}</style>`;
+}
 
 const CHROME_STYLE = `
 html { color-scheme: light; ${LIGHT_VARS} }
@@ -792,6 +840,7 @@ export function injectArchiveChrome(
 					element.append(folderPickerStyleTag(), { html: true });
 				}
 				element.append(lightboxStyleTag(), { html: true });
+				element.append(articleThemeOverrideStyleTag(), { html: true });
 			},
 		})
 		.on('body', {
