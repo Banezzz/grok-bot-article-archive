@@ -8,8 +8,8 @@ export const CONTENT_LANG_STORAGE_KEY = 'archive_content_lang';
 export type ContentLang = 'zh' | 'en' | 'both';
 
 const STRUCTURAL_TAGS = new Set(['html', 'head', 'body', 'main', 'article']);
-const ZH_CLASS = /(^|\s)(zh|cn|bi-zh|lang-zh)(\s|$)/i;
-const EN_CLASS = /(^|\s)(en|tr|orig|bi-en|lang-en)(\s|$)/i;
+const ZH_CLASS = /(^|\s)(zh|cn|bi-zh|lang-zh|zh-inline|zh-list)(\s|$)/i;
+const EN_CLASS = /(^|\s)(en|tr|orig|bi-en|lang-en|en-inline|en-list)(\s|$)/i;
 const PAIR_CLASS = /(^|\s)(pair|bilingual|bi-pair|lang-pair)(\s|$)/i;
 
 export type BilingualScanState = {
@@ -266,26 +266,48 @@ const SWITCH_EXCLUSION =
 
 const CHROME_EXCLUSION = SWITCH_EXCLUSION;
 
-const LANG_BLOCKS = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption, span, small, em, strong, td, th, div, section';
+const LANG_BLOCKS = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption, span, small, em, strong, td, th, div, section, ol, ul';
 
 const BILINGUAL_ROOT = 'html[data-bilingual]';
 
+const EN_HIDE = ':is(.en, .tr, .orig, .bi-en, .lang-en, .en-inline, .en-list, [data-lang="en"], [data-lang^="en-"])';
+const ZH_HIDE = ':is(.zh, .cn, .bi-zh, .lang-zh, .zh-inline, .zh-list, [data-lang="zh"], [data-lang^="zh-"])';
+const HAS_ZH = ':has(.zh, .zh-inline, .zh-list, [lang^="zh"])';
+const HAS_EN = ':has(.en, .en-inline, .en-list, [lang="en"], [lang^="en-"])';
+const KEEP_VISIBLE = ':not(header.meta > p.byline):not(header.meta > p.byline *):not(p.byline):not(p.byline *):not(footer):not(footer *)';
+
 /** Hide/show language-marked blocks. Only when the page is bilingual so Chinese-only never loses content. */
 export const CONTENT_LANG_STYLE = `
-${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(.en, .tr, .orig, .bi-en, .lang-en, [data-lang="en"], [data-lang^="en-"])${CHROME_EXCLUSION} { display: none !important; }
-${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang="en"]${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang^="en-"]${CHROME_EXCLUSION} { display: none !important; }
-${BILINGUAL_ROOT}[data-content-lang="en"] body :is(.zh, .cn, .bi-zh, .lang-zh, [data-lang="zh"], [data-lang^="zh-"])${CHROME_EXCLUSION} { display: none !important; }
-${BILINGUAL_ROOT}[data-content-lang="en"] body :is(${LANG_BLOCKS})[lang^="zh"]${CHROME_EXCLUSION} { display: none !important; }
-${BILINGUAL_ROOT}[data-content-lang="en"] body p:has(+ p.en)${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="en"] body h1:has(+ h1.en)${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="en"] body h2:has(+ h2.en)${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="en"] body h3:has(+ h3.en)${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="en"] body li:has(+ li.en)${CHROME_EXCLUSION},
-${BILINGUAL_ROOT}[data-content-lang="en"] body blockquote:has(+ blockquote.en)${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body ${EN_HIDE}:not(${HAS_ZH})${CHROME_EXCLUSION}${KEEP_VISIBLE} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang="en"]:not(${HAS_ZH})${CHROME_EXCLUSION}${KEEP_VISIBLE},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang^="en-"]:not(${HAS_ZH})${CHROME_EXCLUSION}${KEEP_VISIBLE} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body ${ZH_HIDE}:not(${HAS_EN})${CHROME_EXCLUSION}${KEEP_VISIBLE} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body :is(${LANG_BLOCKS})[lang^="zh"]:not(${HAS_EN})${CHROME_EXCLUSION}${KEEP_VISIBLE} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body .zh + br${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body .en + br${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body header.meta > p.byline${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body header.meta > p.byline${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body p.byline${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body p.byline${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body header.meta > p:has(a)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body header.meta > p:has(a)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body footer${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body footer${CHROME_EXCLUSION} { display: block !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body header.meta > p.byline img${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body header.meta > p.byline img${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body p.byline img${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body p.byline img${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body header.meta > p a${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body header.meta > p a${CHROME_EXCLUSION} { display: inline !important; }
 [data-archive-chrome] .chrome-prefs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 nav[data-archive-content-lang-switch],
 [data-archive-content-lang-switch] {
+  --archive-cl-fg: #1a1814;
+  --archive-cl-muted: #6b645a;
+  --archive-cl-card: #fffdf8;
+  --archive-cl-border: #e4ddd0;
+  --archive-cl-active-bg: #0c6a52;
+  --archive-cl-active-fg: #fff;
   display: none;
   box-sizing: border-box;
   width: 100%;
@@ -294,25 +316,42 @@ nav[data-archive-content-lang-switch],
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--fg, #1a1814);
+  color: var(--archive-cl-fg);
   font: 12px/1.25 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
   letter-spacing: 0;
   text-align: left;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  isolation: isolate;
 }
 @media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) [data-archive-content-lang-switch] { color: var(--fg, #f4efe6); }
+  html:not([data-theme="light"]) [data-archive-content-lang-switch] {
+    --archive-cl-fg: #f4efe6;
+    --archive-cl-muted: #b3aaa0;
+    --archive-cl-card: #1d1a16;
+    --archive-cl-border: #3b342c;
+    --archive-cl-active-bg: #86d4b0;
+    --archive-cl-active-fg: #10211a;
+    color: var(--archive-cl-fg);
+  }
 }
-html[data-theme="dark"] [data-archive-content-lang-switch] { color: var(--fg, #f4efe6); }
-html[data-theme="light"] [data-archive-content-lang-switch] { color: var(--fg, #1a1814); }
+html[data-theme="dark"] [data-archive-content-lang-switch] {
+  --archive-cl-fg: #f4efe6;
+  --archive-cl-muted: #b3aaa0;
+  --archive-cl-card: #1d1a16;
+  --archive-cl-border: #3b342c;
+  --archive-cl-active-bg: #86d4b0;
+  --archive-cl-active-fg: #10211a;
+  color: var(--archive-cl-fg);
+}
+html[data-theme="light"] [data-archive-content-lang-switch] { color: var(--archive-cl-fg); }
 html[data-bilingual] [data-archive-content-lang-switch] {
   display: flex !important;
 }
 [data-archive-content-lang-switch][hidden] { display: none !important; }
 [data-archive-content-lang-switch] .archive-content-lang-label {
-  color: var(--muted, #6b645a) !important;
+  color: var(--archive-cl-muted) !important;
   font-size: 11px !important;
   font-weight: 550;
   letter-spacing: 0.02em;
@@ -321,33 +360,27 @@ html[data-bilingual] [data-archive-content-lang-switch] {
 [data-archive-content-lang-switch] .archive-content-lang-seg {
   display: inline-flex;
   flex-wrap: wrap;
-  border: 1px solid var(--border, #e4ddd0) !important;
+  border: 1px solid var(--archive-cl-border) !important;
   border-radius: 999px;
   overflow: hidden;
-  background: var(--card, #fffdf8) !important;
+  background: var(--archive-cl-card) !important;
   color: inherit !important;
 }
 [data-archive-content-lang-switch] .archive-content-lang-seg a {
   padding: 4px 10px !important;
   text-decoration: none !important;
-  color: var(--fg, #1a1814) !important;
+  color: var(--archive-cl-fg) !important;
   background: transparent !important;
   white-space: nowrap;
   border: 0 !important;
   font: inherit !important;
 }
-html[data-theme="dark"] [data-archive-content-lang-switch] .archive-content-lang-seg a {
-  color: var(--fg, #f4efe6) !important;
-}
-@media (prefers-color-scheme: dark) {
-  html:not([data-theme="light"]) [data-archive-content-lang-switch] .archive-content-lang-seg a { color: var(--fg, #f4efe6) !important; }
-}
 [data-archive-content-lang-switch] .archive-content-lang-seg a.active {
-  color: var(--accent-fg, #fff) !important;
-  background: var(--accent, #0c6a52) !important;
+  color: var(--archive-cl-active-fg) !important;
+  background: var(--archive-cl-active-bg) !important;
 }
 [data-archive-content-lang-switch] .archive-content-lang-seg a:hover:not(.active) {
-  background: color-mix(in srgb, var(--accent, #0c6a52) 12%, var(--card, #fffdf8)) !important;
+  background: color-mix(in srgb, var(--archive-cl-active-bg) 12%, var(--archive-cl-card)) !important;
 }
 @media (max-width: 420px) {
   [data-archive-content-lang-switch] { font-size: 11px; margin-bottom: 0.9em; }
@@ -386,8 +419,8 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
   var key = '${CONTENT_LANG_STORAGE_KEY}';
   var root = document.documentElement;
   var allowed = { zh: 1, en: 1, both: 1 };
-  var ZH_CLASS = /(^|\\s)(zh|cn|bi-zh|lang-zh)(\\s|$)/i;
-  var EN_CLASS = /(^|\\s)(en|tr|orig|bi-en|lang-en)(\\s|$)/i;
+  var ZH_CLASS = /(^|\\s)(zh|cn|bi-zh|lang-zh|zh-inline|zh-list)(\\s|$)/i;
+  var EN_CLASS = /(^|\\s)(en|tr|orig|bi-en|lang-en|en-inline|en-list)(\\s|$)/i;
   var PAIR_CLASS = /(^|\\s)(pair|bilingual|bi-pair|lang-pair)(\\s|$)/i;
   var STRUCT = { html: 1, head: 1, body: 1, main: 1, article: 1 };
 
@@ -434,9 +467,11 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
     if (!el || !el.tagName) return false;
     var tag = String(el.tagName).toLowerCase();
     var cls = el.getAttribute('class') || '';
-    if (tag === 'time' || tag === 'address') return true;
-    if (/(^|\\s)(byline|meta|author|subtitle|kicker|dek|source|date|info|credit)(\\s|$)/i.test(cls)) return true;
+    if (tag === 'time' || tag === 'address' || tag === 'footer') return true;
+    if (/(^|\\s)(byline|meta|author|subtitle|kicker|dek|source|date|info|credit|stats)(\\s|$)/i.test(cls)) return true;
     if (tag === 'p' && el.querySelector && el.querySelector('time')) return true;
+    if (/Source\\s*\\/\\s*原文/i.test(String(el.textContent || ''))) return true;
+    if (el.closest && el.closest('header.meta, header.title, header.masthead, header.article-header, header.post-header, footer')) return true;
     return false;
   }
 
@@ -556,7 +591,7 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
       if (kind === 'en') en += 1;
     }
 
-    var blocks = document.body ? document.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption') : [];
+    var blocks = document.body ? document.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption, ol, ul, strong, em') : [];
     var candidates = [];
     var used = [];
     function taken(node) {
@@ -565,11 +600,11 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
     }
     for (var j = 0; j < blocks.length; j++) {
       var a = blocks[j];
-      if (inChrome(a) || taken(a)) continue;
+      if (inChrome(a) || taken(a) || isByline(a)) continue;
       var role = roleOf(a);
       if (role === 'zh' || role === 'en' || markOf(a)) pairable += 1;
       var b = nextPartner(a);
-      if (!b || taken(b) || !canPair(a, b)) continue;
+      if (!b || taken(b) || isByline(b) || !canPair(a, b)) continue;
       candidates.push([a, b]);
       used.push(a);
       used.push(b);
@@ -589,6 +624,31 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
       if (roleOf(left) === 'en') markPair(left, 'en');
       if (roleOf(right) === 'zh') markPair(right, 'zh');
       if (roleOf(right) === 'en') markPair(right, 'en');
+    }
+    var mix = document.body ? document.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption, div') : [];
+    for (var m = 0; m < mix.length; m++) {
+      var host = mix[m];
+      if (inChrome(host) || isByline(host)) continue;
+      var hasEnChild = host.querySelector && host.querySelector('.en, .en-inline, .en-list, [lang="en"], [lang^="en-"]');
+      var hasZhChild = host.querySelector && host.querySelector('.zh, .zh-inline, .zh-list, [lang^="zh"]');
+      var child = host.firstChild;
+      while (child) {
+        var next = child.nextSibling;
+        if (child.nodeType === 3) {
+          var kind = classifyText(child.nodeValue || '');
+          var wrapLang = null;
+          if (kind === 'zh' && hasEnChild) wrapLang = 'zh';
+          if (kind === 'en' && markOf(host) === 'en' && hasZhChild) wrapLang = 'en';
+          if (wrapLang) {
+            var span = document.createElement('span');
+            span.className = wrapLang;
+            span.setAttribute('lang', wrapLang);
+            host.insertBefore(span, child);
+            span.appendChild(child);
+          }
+        }
+        child = next;
+      }
     }
     return true;
   }

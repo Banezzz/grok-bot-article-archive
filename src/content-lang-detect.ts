@@ -1,9 +1,12 @@
 export type ContentLang = 'zh' | 'en' | 'both';
 
-const ZH_CLASS = /(^|\s)(zh|cn|bi-zh|lang-zh)(\s|$)/i;
-const EN_CLASS = /(^|\s)(en|tr|orig|bi-en|lang-en)(\s|$)/i;
+export const ZH_CLASS = /(^|\s)(zh|cn|bi-zh|lang-zh|zh-inline|zh-list)(\s|$)/i;
+export const EN_CLASS = /(^|\s)(en|tr|orig|bi-en|lang-en|en-inline|en-list)(\s|$)/i;
 const PAIR_CLASS = /(^|\s)(pair|bilingual|bi-pair|lang-pair)(\s|$)/i;
 const STRUCTURAL_MARK_TAGS = new Set(['html', 'head', 'body', 'main', 'article']);
+const META_CLASS = /(^|\s)(byline|meta|author|subtitle|kicker|dek|source|date|info|credit|stats)(\s|$)/i;
+const TITLE_HEADER_CLASS = /(^|\s)(meta|title|masthead|article-header|post-header)(\s|$)/i;
+const SOURCE_META_RE = /Source\s*\/\s*原文/i;
 
 function classifyContentLang(
 	tagName: string,
@@ -69,32 +72,18 @@ const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'i
 const SKIP_TEXT_TAGS = new Set(['script', 'style', 'textarea', 'noscript', 'template']);
 const STRUCTURAL_TAGS = new Set(['html', 'head', 'body', 'main', 'article']);
 const PAIRABLE_BLOCKS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'dt', 'dd', 'blockquote', 'figcaption']);
-const TRANSPARENT_TAGS = new Set([
-	'figure',
-	'img',
-	'hr',
-	'br',
-	'script',
-	'style',
-	'picture',
-	'svg',
-	'iframe',
-	'video',
-	'audio',
-	'source',
-	'track',
-	'link',
-	'meta',
-	'noscript',
-	'template',
-	'wbr',
-]);
-const CAPTION_PARENTS = new Set(['figcaption', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'header']);
+const CAPTION_PARENTS = new Set(['figcaption', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'header', 'li']);
 
 export type TextRole = 'zh' | 'en' | 'url' | 'code' | 'neutral';
 
 export type RecoveredMark = {
 	start: number;
+	lang: 'zh' | 'en';
+};
+
+export type TextWrap = {
+	start: number;
+	end: number;
 	lang: 'zh' | 'en';
 };
 
@@ -106,6 +95,7 @@ export type ArticleLangAnalysis = {
 	pairableBlocks: number;
 	hasPair: boolean;
 	marks: RecoveredMark[];
+	wraps: TextWrap[];
 };
 
 export type ContentLangMeasure = {
@@ -159,17 +149,37 @@ export function classifyTextRole(text: string): TextRole {
 	return 'neutral';
 }
 
+function isMetaLike(tag: string, className: string, text: string, inMetaHeader: boolean): boolean {
+	if (inMetaHeader) {
+		return true;
+	}
+	if (tag === 'footer' || tag === 'time' || tag === 'address') {
+		return true;
+	}
+	if (META_CLASS.test(className)) {
+		return true;
+	}
+	if (SOURCE_META_RE.test(text)) {
+		return true;
+	}
+	return false;
+}
+
 type Frame = {
 	id: number;
 	tag: string;
 	attrs: string;
 	start: number;
-	mark: ContentLang | null;
+	mark: 'zh' | 'en' | null;
 	text: string;
 	parentId: number;
 	parentTag: string;
 	skipText: boolean;
 	pairableChildCount: number;
+	inMeta: boolean;
+	hasZhDesc: boolean;
+	hasEnDesc: boolean;
+	textRuns: TextWrap[];
 };
 
 type Block = {
@@ -177,14 +187,15 @@ type Block = {
 	tag: string;
 	attrs: string;
 	start: number;
-	mark: ContentLang | null;
+	mark: 'zh' | 'en' | null;
 	text: string;
 	parentId: number;
-	role: TextRole | ContentLang;
+	role: TextRole | 'zh' | 'en';
+	inMeta: boolean;
 };
 
 function isPairableTag(tag: string, attrs: string, parentTag: string, pairableChildCount: number, text: string): boolean {
-	if (STRUCTURAL_TAGS.has(tag) || SKIP_TEXT_TAGS.has(tag) || VOID_TAGS.has(tag)) {
+	if (STRUCTURAL_TAGS.has(tag) || SKIP_TEXT_TAGS.has(tag) || VOID_TAGS.has(tag) || tag === 'footer') {
 		return false;
 	}
 	if (PAIRABLE_BLOCKS.has(tag)) {
@@ -193,6 +204,12 @@ function isPairableTag(tag: string, attrs: string, parentTag: string, pairableCh
 	const marked = Boolean(classifyContentLang(tag, attr(attrs, 'lang'), attr(attrs, 'class'), attr(attrs, 'data-lang')));
 	if (tag === 'span' || tag === 'small') {
 		return marked || CAPTION_PARENTS.has(parentTag);
+	}
+	if (tag === 'strong' || tag === 'em' || tag === 'b') {
+		return marked || classifyTextRole(text) === 'zh' || classifyTextRole(text) === 'en';
+	}
+	if (tag === 'ol' || tag === 'ul') {
+		return marked || classifyTextRole(text) === 'zh' || classifyTextRole(text) === 'en';
 	}
 	if (tag === 'div' || tag === 'section') {
 		if (marked) {
@@ -205,11 +222,20 @@ function isPairableTag(tag: string, attrs: string, parentTag: string, pairableCh
 	return false;
 }
 
-function walkBlocks(html: string): { blocks: Block[]; hasPair: boolean; explicitZh: number; explicitEn: number } {
+function walkArticle(html: string): {
+	blocks: Block[];
+	hasPair: boolean;
+	explicitZh: number;
+	explicitEn: number;
+	wraps: TextWrap[];
+	wrapPairs: number;
+} {
 	const state = { zh: 0, en: 0, hasPair: false };
 	const stripped = html.replace(/<(script|style|textarea|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, (chunk) => chunk.replace(/[^>]/g, ' '));
 	const stack: Frame[] = [];
 	const blocks: Block[] = [];
+	const wraps: TextWrap[] = [];
+	let wrapPairs = 0;
 	let nextId = 1;
 	const re = /<\/?([a-zA-Z][\w:-]*)\b([^>]*)>|([^<]+)/g;
 
@@ -218,6 +244,10 @@ function walkBlocks(html: string): { blocks: Block[]; hasPair: boolean; explicit
 			const top = stack[stack.length - 1];
 			if (top && !top.skipText) {
 				top.text += match[3];
+				const role = classifyTextRole(match[3]);
+				if (role === 'zh' || role === 'en') {
+					top.textRuns.push({ start: match.index, end: match.index + match[3].length, lang: role });
+				}
 			}
 			continue;
 		}
@@ -235,9 +265,25 @@ function walkBlocks(html: string): { blocks: Block[]; hasPair: boolean; explicit
 					if (!frame) {
 						break;
 					}
-					if (
-						isPairableTag(frame.tag, frame.attrs, frame.parentTag, frame.pairableChildCount, frame.text)
-					) {
+					const className = attr(frame.attrs, 'class') || '';
+					const skip = isMetaLike(frame.tag, className, frame.text, frame.inMeta);
+					if (!skip) {
+						if (frame.mark === 'en' && frame.hasZhDesc) {
+							for (const run of frame.textRuns) {
+								if (run.lang === 'en') {
+									wraps.push(run);
+								}
+							}
+						}
+						if ((frame.mark === 'zh' || !frame.mark) && frame.hasEnDesc) {
+							const zhRuns = frame.textRuns.filter((run) => run.lang === 'zh');
+							if (zhRuns.length) {
+								wraps.push(...zhRuns);
+								wrapPairs += 1;
+							}
+						}
+					}
+					if (!skip && isPairableTag(frame.tag, frame.attrs, frame.parentTag, frame.pairableChildCount, frame.text)) {
 						const role = frame.mark ?? classifyTextRole(frame.text);
 						blocks.push({
 							id: frame.id,
@@ -248,10 +294,29 @@ function walkBlocks(html: string): { blocks: Block[]; hasPair: boolean; explicit
 							text: frame.text,
 							parentId: frame.parentId,
 							role,
+							inMeta: frame.inMeta,
 						});
 						const parent = stack[stack.length - 1];
 						if (parent) {
+							parent.text += frame.text;
 							parent.pairableChildCount += 1;
+							if (frame.mark === 'zh' || frame.hasZhDesc) {
+								parent.hasZhDesc = true;
+							}
+							if (frame.mark === 'en' || frame.hasEnDesc) {
+								parent.hasEnDesc = true;
+							}
+						}
+					} else {
+						const parent = stack[stack.length - 1];
+						if (parent) {
+							parent.text += frame.text;
+							if (frame.mark === 'zh' || frame.hasZhDesc) {
+								parent.hasZhDesc = true;
+							}
+							if (frame.mark === 'en' || frame.hasEnDesc) {
+								parent.hasEnDesc = true;
+							}
 						}
 					}
 					break;
@@ -260,26 +325,35 @@ function walkBlocks(html: string): { blocks: Block[]; hasPair: boolean; explicit
 			continue;
 		}
 		const parent = stack[stack.length - 1];
-		observeLangMark(state, tag, attr(attrs, 'lang'), attr(attrs, 'class'), attr(attrs, 'data-lang'));
+		const className = attr(attrs, 'class');
+		observeLangMark(state, tag, attr(attrs, 'lang'), className, attr(attrs, 'data-lang'));
+		const opensMeta = tag === 'header' && TITLE_HEADER_CLASS.test(className || '');
 		stack.push({
 			id: nextId,
 			tag,
 			attrs,
 			start: match.index,
-			mark: classifyContentLang(tag, attr(attrs, 'lang'), attr(attrs, 'class'), attr(attrs, 'data-lang')),
+			mark: classifyContentLang(tag, attr(attrs, 'lang'), className, attr(attrs, 'data-lang')),
 			text: '',
 			parentId: parent?.id ?? 0,
 			parentTag: parent?.tag ?? '',
 			skipText: SKIP_TEXT_TAGS.has(tag),
 			pairableChildCount: 0,
+			inMeta: Boolean(parent?.inMeta || opensMeta || tag === 'footer'),
+			hasZhDesc: false,
+			hasEnDesc: false,
+			textRuns: [],
 		});
 		nextId += 1;
 	}
 
-	return { blocks, hasPair: state.hasPair, explicitZh: state.zh, explicitEn: state.en };
+	return { blocks, hasPair: state.hasPair, explicitZh: state.zh, explicitEn: state.en, wraps, wrapPairs };
 }
 
 function complementary(a: Block, b: Block): { zh: Block; en: Block } | null {
+	if (a.inMeta || b.inMeta) {
+		return null;
+	}
 	const aLang = a.mark ?? (a.role === 'zh' || a.role === 'en' ? a.role : null);
 	const bLang = b.mark ?? (b.role === 'zh' || b.role === 'en' ? b.role : null);
 	if (!aLang || !bLang || aLang === bLang) {
@@ -304,6 +378,9 @@ function canPair(a: Block, b: Block): boolean {
 function recoverPairs(blocks: Block[]): Array<{ zh: Block; en: Block }> {
 	const byParent = new Map<number, Block[]>();
 	for (const block of blocks) {
+		if (block.inMeta) {
+			continue;
+		}
 		const list = byParent.get(block.parentId) ?? [];
 		list.push(block);
 		byParent.set(block.parentId, list);
@@ -317,19 +394,8 @@ function recoverPairs(blocks: Block[]): Array<{ zh: Block; en: Block }> {
 			if (!a || used.has(a.id)) {
 				continue;
 			}
-			let partner: Block | undefined;
-			for (let j = i + 1; j < siblings.length; j += 1) {
-				const candidate = siblings[j];
-				if (!candidate || used.has(candidate.id)) {
-					continue;
-				}
-				if (TRANSPARENT_TAGS.has(candidate.tag) && !candidate.mark) {
-					continue;
-				}
-				partner = candidate;
-				break;
-			}
-			if (!partner || !canPair(a, partner)) {
+			const partner = siblings[i + 1];
+			if (!partner || used.has(partner.id) || !canPair(a, partner)) {
 				continue;
 			}
 			const pair = complementary(a, partner);
@@ -372,10 +438,11 @@ function decideBilingual(
 }
 
 export function analyzeArticleLanguage(html: string): ArticleLangAnalysis {
-	const { blocks, hasPair, explicitZh, explicitEn } = walkBlocks(html);
-	const pairs = recoverPairs(blocks);
-	const pairableBlocks = blocks.filter((block) => block.mark || block.role === 'zh' || block.role === 'en').length;
-	const bilingual = decideBilingual(explicitZh, explicitEn, hasPair, pairs.length, pairableBlocks);
+	const walked = walkArticle(html);
+	const pairs = recoverPairs(walked.blocks);
+	const recoveredPairs = pairs.length + walked.wrapPairs;
+	const pairableBlocks = walked.blocks.filter((block) => block.mark || block.role === 'zh' || block.role === 'en').length;
+	const bilingual = decideBilingual(walked.explicitZh, walked.explicitEn, walked.hasPair, recoveredPairs, pairableBlocks);
 	const marks: RecoveredMark[] = [];
 	if (bilingual) {
 		for (const pair of pairs) {
@@ -389,12 +456,13 @@ export function analyzeArticleLanguage(html: string): ArticleLangAnalysis {
 	}
 	return {
 		bilingual,
-		explicitZh,
-		explicitEn,
-		recoveredPairs: pairs.length,
+		explicitZh: walked.explicitZh,
+		explicitEn: walked.explicitEn,
+		recoveredPairs,
 		pairableBlocks,
-		hasPair,
+		hasPair: walked.hasPair,
 		marks,
+		wraps: bilingual ? walked.wraps : [],
 	};
 }
 
@@ -428,26 +496,45 @@ function withLangClass(open: string, lang: 'zh' | 'en'): string {
 	return result;
 }
 
-/** Add zh/en class+lang on recovered siblings. No-op when the page is not bilingual. */
-export function markRecoveredLanguagePairs(html: string): string {
-	const analysis = analyzeArticleLanguage(html);
-	if (!analysis.bilingual || analysis.marks.length === 0) {
-		return html;
-	}
-	const marks = [...analysis.marks].sort((a, b) => b.start - a.start);
+function applyEdits(html: string, marks: RecoveredMark[], wraps: TextWrap[]): string {
+	type Edit =
+		| { kind: 'mark'; start: number; lang: 'zh' | 'en' }
+		| { kind: 'wrap'; start: number; end: number; lang: 'zh' | 'en' };
+	const edits: Edit[] = [
+		...marks.map((mark) => ({ kind: 'mark' as const, start: mark.start, lang: mark.lang })),
+		...wraps.map((wrap) => ({ kind: 'wrap' as const, start: wrap.start, end: wrap.end, lang: wrap.lang })),
+	];
+	edits.sort((a, b) => b.start - a.start || (a.kind === 'wrap' ? 1 : -1));
 	let out = html;
-	for (const mark of marks) {
-		const endOpen = out.indexOf('>', mark.start);
-		if (endOpen === -1) {
+	for (const edit of edits) {
+		if (edit.kind === 'mark') {
+			const endOpen = out.indexOf('>', edit.start);
+			if (endOpen === -1) {
+				continue;
+			}
+			const open = out.slice(edit.start, endOpen + 1);
+			if (!open.startsWith('<') || open.startsWith('</')) {
+				continue;
+			}
+			out = `${out.slice(0, edit.start)}${withLangClass(open, edit.lang)}${out.slice(endOpen + 1)}`;
 			continue;
 		}
-		const open = out.slice(mark.start, endOpen + 1);
-		if (!open.startsWith('<') || open.startsWith('</')) {
+		const inner = out.slice(edit.start, edit.end);
+		if (!inner.trim()) {
 			continue;
 		}
-		out = `${out.slice(0, mark.start)}${withLangClass(open, mark.lang)}${out.slice(endOpen + 1)}`;
+		out = `${out.slice(0, edit.start)}<span class="${edit.lang}" lang="${edit.lang}">${inner}</span>${out.slice(edit.end)}`;
 	}
 	return out;
+}
+
+/** Add zh/en class+lang on recovered siblings and wrap mixed bare text. No-op when not bilingual. */
+export function markRecoveredLanguagePairs(html: string): string {
+	const analysis = analyzeArticleLanguage(html);
+	if (!analysis.bilingual || (analysis.marks.length === 0 && analysis.wraps.length === 0)) {
+		return html;
+	}
+	return applyEdits(html, analysis.marks, analysis.wraps);
 }
 
 function collectVisible(blocks: Block[], hidden: Set<number>): { cjk: number; lat: number } {
@@ -472,12 +559,15 @@ function snippet(block: Block): string {
 export function measureContentLang(html: string): ContentLangMeasure {
 	const marked = markRecoveredLanguagePairs(html);
 	const analysis = analyzeArticleLanguage(marked);
-	const { blocks } = walkBlocks(marked);
+	const { blocks } = walkArticle(marked);
 	const hiddenEn = new Set<number>();
 	const hiddenZh = new Set<number>();
 	const wronglyHidden: string[] = [];
 
 	for (const block of blocks) {
+		if (block.inMeta) {
+			continue;
+		}
 		const lang = block.mark ?? (block.role === 'zh' || block.role === 'en' ? block.role : null);
 		if (lang === 'zh') {
 			hiddenEn.add(block.id);
@@ -488,19 +578,8 @@ export function measureContentLang(html: string): ContentLangMeasure {
 		if (!analysis.bilingual) {
 			continue;
 		}
-		if (lang === 'zh' && block.role !== 'zh' && block.role !== 'en' && block.mark !== 'zh') {
-			wronglyHidden.push(`en-mode ${snippet(block)}`);
-		}
 		if (lang === 'en' && (block.role === 'url' || block.role === 'code' || block.role === 'neutral')) {
 			wronglyHidden.push(`zh-mode ${snippet(block)}`);
-		}
-	}
-
-	if (analysis.bilingual) {
-		for (const block of blocks) {
-			if (hiddenEn.has(block.id) && block.role !== 'zh' && !block.mark) {
-				wronglyHidden.push(`en-mode unmarked ${snippet(block)}`);
-			}
 		}
 	}
 
