@@ -732,6 +732,7 @@ a { color:#0b3d2e; }
 		expect(lightHtml).toContain('English paragraph');
 		expect(lightHtml).toContain('data-archive-chrome');
 		expect(lightHtml).toContain('/theme?set=dark');
+		expect(lightHtml).toContain('width=device-width, initial-scale=1');
 
 		const dark = await SELF.fetch('http://example.com/a/hardcoded-theme', {
 			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },

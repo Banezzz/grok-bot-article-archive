@@ -45,12 +45,14 @@ export const SHARE_DIALOG_STYLE = `
 }
 .archive-share-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   margin: 0 0 8px;
 }
 .archive-share-sheet h2 {
+  flex: 1 1 auto;
+  min-width: 0;
   margin: 0;
   font: 650 1.15rem/1.3 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
   letter-spacing: -0.02em;
@@ -101,14 +103,17 @@ export const SHARE_DIALOG_STYLE = `
 .archive-share-sheet button {
   appearance: none;
   box-sizing: border-box;
-  width: 100%;
-  min-height: 44px;
   margin: 0;
   padding: 10px 14px;
   border: 0;
   border-radius: 10px;
   font: 550 15px/1.25 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
   cursor: pointer;
+}
+.archive-share-actions button,
+.archive-share-unshare button {
+  width: 100%;
+  min-height: 44px;
 }
 .archive-share-copy {
   background: var(--accent, Highlight);

@@ -879,6 +879,7 @@ export function injectArchiveChrome(
 		})
 		.on('head', {
 			element(element) {
+				element.append('<meta name="viewport" content="width=device-width, initial-scale=1">', { html: true });
 				if (manage) {
 					element.append(folderPickerStyleTag(), { html: true });
 					element.append(shareDialogStyleTag(), { html: true });
