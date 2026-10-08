@@ -1011,6 +1011,9 @@ a { color:#0b3d2e; }
 		expect(noH1Page).toContain('<nav data-archive-content-lang-switch');
 		const noH1Chrome = noH1Page.indexOf('<nav data-archive-chrome');
 		expect(noH1Page.slice(noH1Chrome, noH1Page.indexOf('</nav>', noH1Chrome))).not.toContain('data-archive-content-lang-switch');
+		const noH1Switch = noH1Page.indexOf('<nav data-archive-content-lang-switch');
+		expect(noH1Switch).toBeGreaterThan(noH1Page.indexOf('<article>'));
+		expect(noH1Switch).toBeLessThan(noH1Page.indexOf('花园里的番茄已经红了'));
 	});
 
 	it('recovers unmarked Chinese next to class=en siblings and leaves URL-only Chinese pages alone', async () => {

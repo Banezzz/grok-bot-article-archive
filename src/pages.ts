@@ -5,9 +5,7 @@ import {
 	analyzeArticleLanguage,
 	contentLangStyleTag,
 	contentLangSwitch,
-	createPlacementState,
-	finishPlacement,
-	handlePlacementElement,
+	insertSwitchIntoArticleHtml,
 	markRecoveredLanguagePairs,
 	type ContentLang,
 } from './content-lang';
@@ -892,12 +890,11 @@ export async function injectArchiveChrome(
 ): Promise<Response> {
 	const lightbox = lightboxInjection(chrome.locale);
 	const manage = access === 'manage';
-	const placement = createPlacementState();
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
 	const switchMarkup = contentLangSwitch(chrome.locale, articlePath, chrome.contentLang);
 	const sourceHtml = await htmlResponse.text();
 	const analysis = analyzeArticleLanguage(sourceHtml);
-	const prepared = markRecoveredLanguagePairs(sourceHtml);
+	const prepared = insertSwitchIntoArticleHtml(markRecoveredLanguagePairs(sourceHtml), switchMarkup);
 	return new HTMLRewriter()
 		.on('html', {
 			element(element) {
@@ -910,11 +907,6 @@ export async function injectArchiveChrome(
 				if (analysis.bilingual) {
 					element.setAttribute('data-bilingual', '1');
 				}
-			},
-		})
-		.on('*', {
-			element(element) {
-				handlePlacementElement(placement, element, switchMarkup);
 			},
 		})
 		.on('head', {
@@ -943,7 +935,6 @@ export async function injectArchiveChrome(
 					if (analysis.bilingual) {
 						end.before(CONTENT_LANG_HINT, { html: true });
 					}
-					finishPlacement(placement, end, switchMarkup);
 				});
 			},
 		})
