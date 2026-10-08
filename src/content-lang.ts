@@ -121,7 +121,11 @@ html[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang="en"]${CHROME_EXCLUSI
 html[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang^="en-"]${CHROME_EXCLUSION} { display: none !important; }
 html[data-content-lang="en"] body :is(.zh, .cn, .bi-zh, .lang-zh, [data-lang="zh"], [data-lang^="zh-"])${CHROME_EXCLUSION} { display: none !important; }
 html[data-content-lang="en"] body :is(${LANG_BLOCKS})[lang^="zh"]${CHROME_EXCLUSION} { display: none !important; }
+[data-archive-chrome] { row-gap: 8px; }
 [data-archive-chrome] .chrome-prefs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 720px) {
+  [data-archive-chrome] .chrome-prefs { flex: 1 1 100%; }
+}
 [data-archive-chrome] .content-lang-switch {
   display: none;
   border: 1px solid rgba(255,255,255,.22);
