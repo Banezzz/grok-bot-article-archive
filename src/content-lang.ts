@@ -1,5 +1,8 @@
+import { analyzeArticleLanguage } from './content-lang-detect';
 import { t, type Locale } from './i18n';
 import { escapeHtml } from './util';
+
+export { analyzeArticleLanguage, classifyTextRole, markRecoveredLanguagePairs, measureContentLang, looksBilingualLegacy } from './content-lang-detect';
 
 export const CONTENT_LANG_STORAGE_KEY = 'archive_content_lang';
 export type ContentLang = 'zh' | 'en' | 'both';
@@ -99,14 +102,7 @@ function attr(source: string, name: string): string | null {
 
 /** Server-side / unit-test scan of stored article HTML. Ignores html/body/main/article lang. */
 export function looksBilingual(html: string): boolean {
-	const state = createBilingualScanState();
-	const stripped = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, ' ');
-	const tagRe = /<([a-zA-Z][\w:-]*)\b([^>]*)>/g;
-	for (let match = tagRe.exec(stripped); match; match = tagRe.exec(stripped)) {
-		const attrs = match[2] ?? '';
-		observeLangMark(state, match[1] ?? '', attr(attrs, 'lang'), attr(attrs, 'class'), attr(attrs, 'data-lang'));
-	}
-	return isBilingualScan(state);
+	return analyzeArticleLanguage(html).bilingual;
 }
 
 export function isPairClass(className: string | null | undefined): boolean {
@@ -272,13 +268,21 @@ const CHROME_EXCLUSION = SWITCH_EXCLUSION;
 
 const LANG_BLOCKS = 'p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption, span, small, em, strong, td, th, div, section';
 
-/** Hide/show language-marked blocks. Unmarked headings, figures, images, and code stay visible. */
+const BILINGUAL_ROOT = 'html[data-bilingual]';
+
+/** Hide/show language-marked blocks. Only when the page is bilingual so Chinese-only never loses content. */
 export const CONTENT_LANG_STYLE = `
-html[data-content-lang="zh"] body :is(.en, .tr, .orig, .bi-en, .lang-en, [data-lang="en"], [data-lang^="en-"])${CHROME_EXCLUSION} { display: none !important; }
-html[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang="en"]${CHROME_EXCLUSION},
-html[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang^="en-"]${CHROME_EXCLUSION} { display: none !important; }
-html[data-content-lang="en"] body :is(.zh, .cn, .bi-zh, .lang-zh, [data-lang="zh"], [data-lang^="zh-"])${CHROME_EXCLUSION} { display: none !important; }
-html[data-content-lang="en"] body :is(${LANG_BLOCKS})[lang^="zh"]${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(.en, .tr, .orig, .bi-en, .lang-en, [data-lang="en"], [data-lang^="en-"])${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang="en"]${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="zh"] body :is(${LANG_BLOCKS})[lang^="en-"]${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body :is(.zh, .cn, .bi-zh, .lang-zh, [data-lang="zh"], [data-lang^="zh-"])${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body :is(${LANG_BLOCKS})[lang^="zh"]${CHROME_EXCLUSION} { display: none !important; }
+${BILINGUAL_ROOT}[data-content-lang="en"] body p:has(+ p.en)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body h1:has(+ h1.en)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body h2:has(+ h2.en)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body h3:has(+ h3.en)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body li:has(+ li.en)${CHROME_EXCLUSION},
+${BILINGUAL_ROOT}[data-content-lang="en"] body blockquote:has(+ blockquote.en)${CHROME_EXCLUSION} { display: none !important; }
 [data-archive-chrome] .chrome-prefs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 nav[data-archive-content-lang-switch],
 [data-archive-content-lang-switch] {
@@ -303,13 +307,7 @@ nav[data-archive-content-lang-switch],
 }
 html[data-theme="dark"] [data-archive-content-lang-switch] { color: var(--fg, #f4efe6); }
 html[data-theme="light"] [data-archive-content-lang-switch] { color: var(--fg, #1a1814); }
-html[data-bilingual] [data-archive-content-lang-switch],
-html:has(.pair .zh):has(.pair .en) [data-archive-content-lang-switch],
-html:has(p.zh):has(p.en) [data-archive-content-lang-switch],
-html:has(p[lang^="zh"]):has(p[lang="en"]) [data-archive-content-lang-switch],
-html:has(figcaption .zh):has(figcaption .en) [data-archive-content-lang-switch],
-html:has(.tweet-card .zh):has(.tweet-card .en) [data-archive-content-lang-switch],
-html:has(blockquote .zh):has(blockquote .en) [data-archive-content-lang-switch] {
+html[data-bilingual] [data-archive-content-lang-switch] {
   display: flex !important;
 }
 [data-archive-content-lang-switch][hidden] { display: none !important; }
@@ -372,10 +370,8 @@ export const CONTENT_LANG_BOOTSTRAP = `<script>
     var fromAttr = root.getAttribute('data-content-lang');
     if (fromUrl && allowed[fromUrl]) {
       chosen = fromUrl;
-      localStorage.setItem(key, fromUrl);
     } else if (fromAttr && allowed[fromAttr]) {
       chosen = fromAttr;
-      localStorage.setItem(key, fromAttr);
     } else {
       var stored = localStorage.getItem(key);
       if (stored && allowed[stored]) chosen = stored;
@@ -491,22 +487,65 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
     return String(el.textContent || '').replace(/\\s+/g, ' ').trim();
   }
 
-  function isCjk(text) {
-    var cjk = (text.match(/[\\u3400-\\u9FFF\\uF900-\\uFAFF]/g) || []).length;
-    var lat = (text.match(/[A-Za-z]/g) || []).length;
-    return cjk >= 4 && cjk > lat;
+  function classifyText(text) {
+    var raw = String(text || '').replace(/\\s+/g, ' ').trim();
+    if (!raw) return 'neutral';
+    var cjk = (raw.match(/[\\u3400-\\u9FFF\\uF900-\\uFAFF]/g) || []).length;
+    var stripped = raw.replace(/https?:\\/\\/[^\\s<>"']+|www\\.[^\\s<>"']+|\\b[a-z0-9][a-z0-9.-]*\\.[a-z]{2,}(?:\\/[^\\s<>"']*)?/gi, ' ');
+    stripped = stripped.replace(/\\b[\\w.+-]+@[\\w.-]+\\.[a-z]{2,}\\b/gi, ' ');
+    var lat = (stripped.match(/[A-Za-z]/g) || []).length;
+    var latAll = (raw.match(/[A-Za-z]/g) || []).length;
+    if (cjk >= 4 && cjk >= lat) return 'zh';
+    if (lat < 8 && cjk < 4) {
+      if (latAll >= 8 || /https?:\\/\\/|www\\.|\\.[a-z]{2,}\\//i.test(raw)) return 'url';
+      return 'neutral';
+    }
+    if (lat >= 12 && lat > cjk * 2) return 'en';
+    if (cjk >= 4) return 'zh';
+    return 'neutral';
   }
 
-  function isLat(text) {
-    var cjk = (text.match(/[\\u3400-\\u9FFF\\uF900-\\uFAFF]/g) || []).length;
-    var lat = (text.match(/[A-Za-z]/g) || []).length;
-    return lat >= 12 && lat > cjk * 2;
+  function roleOf(el) {
+    var marked = markOf(el);
+    if (marked) return marked;
+    return classifyText(textOf(el));
+  }
+
+  function transparent(el) {
+    if (!el || !el.tagName) return false;
+    return /^(FIGURE|IMG|HR|BR|SCRIPT|STYLE|PICTURE|SVG|IFRAME|VIDEO|AUDIO)$/.test(el.tagName);
+  }
+
+  function nextPartner(el) {
+    var n = el.nextElementSibling;
+    while (n && transparent(n)) n = n.nextElementSibling;
+    return n;
+  }
+
+  function canPair(a, b) {
+    if (!a || !b || inChrome(a) || inChrome(b)) return false;
+    if (a.parentElement !== b.parentElement) return false;
+    var aMark = markOf(a);
+    var bMark = markOf(b);
+    if (String(a.tagName) !== String(b.tagName) && !aMark && !bMark) return false;
+    var aRole = roleOf(a);
+    var bRole = roleOf(b);
+    if (aRole === 'url' || aRole === 'code' || bRole === 'url' || bRole === 'code') return false;
+    if ((aRole === 'zh' && bRole === 'en') || (aRole === 'en' && bRole === 'zh')) return true;
+    return false;
+  }
+
+  function markPair(el, lang) {
+    if (markOf(el)) return;
+    el.classList.add(lang);
+    if (!el.getAttribute('lang')) el.setAttribute('lang', lang);
   }
 
   function detectAndMark() {
     var zh = 0;
     var en = 0;
     var hasPair = false;
+    var pairable = 0;
     var nodes = document.body ? document.body.getElementsByTagName('*') : [];
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
@@ -517,38 +556,53 @@ export const CONTENT_LANG_SCRIPT = `<script data-archive-content-lang-script>
       if (kind === 'en') en += 1;
     }
 
-    var blocks = document.body ? document.body.querySelectorAll('p, h2, h3, h4, h5, h6, li, blockquote') : [];
+    var blocks = document.body ? document.body.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, dt, dd, blockquote, figcaption') : [];
     var candidates = [];
+    var used = [];
+    function taken(node) {
+      for (var u = 0; u < used.length; u++) if (used[u] === node) return true;
+      return false;
+    }
     for (var j = 0; j < blocks.length; j++) {
       var a = blocks[j];
-      var b = a.nextElementSibling;
-      if (!b || inChrome(a) || inChrome(b) || markOf(a) || markOf(b)) continue;
-      if (a.tagName !== b.tagName || a.parentElement !== b.parentElement) continue;
-      if (isCjk(textOf(a)) && isLat(textOf(b))) candidates.push([a, b]);
-    }
-    if (candidates.length >= 2) {
-      for (var k = 0; k < candidates.length; k++) {
-        candidates[k][0].classList.add('zh');
-        if (!candidates[k][0].getAttribute('lang')) candidates[k][0].setAttribute('lang', 'zh');
-        candidates[k][1].classList.add('en');
-        if (!candidates[k][1].getAttribute('lang')) candidates[k][1].setAttribute('lang', 'en');
-        zh += 1;
-        en += 1;
-      }
+      if (inChrome(a) || taken(a)) continue;
+      var role = roleOf(a);
+      if (role === 'zh' || role === 'en' || markOf(a)) pairable += 1;
+      var b = nextPartner(a);
+      if (!b || taken(b) || !canPair(a, b)) continue;
+      candidates.push([a, b]);
+      used.push(a);
+      used.push(b);
     }
 
-    if (zh < 1 || en < 1) return false;
-    if (hasPair || candidates.length >= 2) return true;
-    if (zh >= 2 && en >= 2) return true;
-    return Math.max(zh, en) <= Math.min(zh, en) * 3 + 2;
+    var recovered = candidates.length;
+    var bilingual = false;
+    if (hasPair && zh >= 1 && en >= 1) bilingual = true;
+    else if (zh >= 1 && en >= 1 && (zh >= 2 && en >= 2 || Math.max(zh, en) <= Math.min(zh, en) * 3 + 2)) bilingual = true;
+    else if (recovered >= 2 && recovered >= Math.max(2, Math.ceil(pairable / 6))) bilingual = true;
+
+    if (!bilingual) return false;
+    for (var k = 0; k < candidates.length; k++) {
+      var left = candidates[k][0];
+      var right = candidates[k][1];
+      if (roleOf(left) === 'zh') markPair(left, 'zh');
+      if (roleOf(left) === 'en') markPair(left, 'en');
+      if (roleOf(right) === 'zh') markPair(right, 'zh');
+      if (roleOf(right) === 'en') markPair(right, 'en');
+    }
+    return true;
   }
 
-  var bilingual = root.getAttribute('data-bilingual') === '1' || detectAndMark();
+  var detected = detectAndMark();
+  var bilingual = root.getAttribute('data-bilingual') === '1' || detected;
   var switches = document.querySelectorAll('[data-archive-content-lang-switch], [data-content-lang-switch]');
   for (var p = 0; p < switches.length; p++) placeSwitch(switches[p]);
   if (bilingual) {
     root.setAttribute('data-bilingual', '1');
     for (var s = 0; s < switches.length; s++) switches[s].removeAttribute('hidden');
+    var fromUrl = null;
+    try { fromUrl = new URLSearchParams(location.search).get('lang'); } catch (err) {}
+    if (fromUrl && allowed[fromUrl]) apply(fromUrl, true);
   } else {
     root.removeAttribute('data-bilingual');
     apply('both', false);

@@ -2,14 +2,13 @@ import {
 	CONTENT_LANG_BOOTSTRAP,
 	CONTENT_LANG_HINT,
 	CONTENT_LANG_SCRIPT,
+	analyzeArticleLanguage,
 	contentLangStyleTag,
 	contentLangSwitch,
-	createBilingualScanState,
 	createPlacementState,
 	finishPlacement,
 	handlePlacementElement,
-	isBilingualScan,
-	observeLangMark,
+	markRecoveredLanguagePairs,
 	type ContentLang,
 } from './content-lang';
 import type { FolderSummary } from './folders';
@@ -884,19 +883,21 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 </nav>`;
 }
 
-export function injectArchiveChrome(
+export async function injectArchiveChrome(
 	htmlResponse: Response,
 	article: ArticleView,
 	folders: FolderSummary[],
 	chrome: Chrome,
 	access: 'manage' | 'public' = 'manage',
-): Response {
+): Promise<Response> {
 	const lightbox = lightboxInjection(chrome.locale);
 	const manage = access === 'manage';
-	const scan = createBilingualScanState();
 	const placement = createPlacementState();
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
 	const switchMarkup = contentLangSwitch(chrome.locale, articlePath, chrome.contentLang);
+	const sourceHtml = await htmlResponse.text();
+	const analysis = analyzeArticleLanguage(sourceHtml);
+	const prepared = markRecoveredLanguagePairs(sourceHtml);
 	return new HTMLRewriter()
 		.on('html', {
 			element(element) {
@@ -906,11 +907,13 @@ export function injectArchiveChrome(
 				if (chrome.contentLang) {
 					element.setAttribute('data-content-lang', chrome.contentLang);
 				}
+				if (analysis.bilingual) {
+					element.setAttribute('data-bilingual', '1');
+				}
 			},
 		})
 		.on('*', {
 			element(element) {
-				observeLangMark(scan, element.tagName, element.getAttribute('lang'), element.getAttribute('class'), element.getAttribute('data-lang'));
 				handlePlacementElement(placement, element, switchMarkup);
 			},
 		})
@@ -937,12 +940,12 @@ export function injectArchiveChrome(
 				element.append(lightbox, { html: true });
 				element.append(CONTENT_LANG_SCRIPT, { html: true });
 				element.onEndTag((end) => {
-					if (isBilingualScan(scan)) {
+					if (analysis.bilingual) {
 						end.before(CONTENT_LANG_HINT, { html: true });
 					}
 					finishPlacement(placement, end, switchMarkup);
 				});
 			},
 		})
-		.transform(htmlResponse);
+		.transform(new Response(prepared, { status: htmlResponse.status, headers: htmlResponse.headers }));
 }

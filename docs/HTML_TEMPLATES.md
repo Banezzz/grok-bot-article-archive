@@ -30,7 +30,7 @@ The archive chrome sets `html[data-theme="light"]` or `html[data-theme="dark"]` 
 
 ### Bilingual
 
-Use one `.pair` per meaningful unit. Chinese first, then the matching English source. Mark **every** language-specific block with both a class and a `lang` attribute so the article-page content-language switch (`中文` / `English` / `中英对照`) can hide or show them. The live `/a/:slug` view injects `html[data-content-lang=zh|en|both]`, hide/show CSS, and a compact **中文 / English / 中英对照** control directly under the article title (not in the top chrome). Already-stored HTML does not need a re-upload if it already uses these marks (or common equivalents such as `lang="zh-CN"`, `.cn`, `.bi-zh`, `.tr`, `.orig`, `.bi-en`).
+Use one `.pair` per meaningful unit. Chinese first, then the matching English source. Mark **every** language-specific block with both a class and a `lang` attribute so the article-page content-language switch (`中文` / `English` / `中英对照`) can hide or show them. The live `/a/:slug` view injects `html[data-content-lang=zh|en|both]`, hide/show CSS, and a compact **中文 / English / 中英对照** control directly under the article title (not in the top chrome). Already-stored HTML does not need a re-upload if it already uses these marks (or common equivalents such as `lang="zh-CN"`, `.cn`, `.bi-zh`, `.tr`, `.orig`, `.bi-en`). Older articles that only marked the English sibling (`class="en"`) and left the Chinese block unmarked are recovered at serve time.
 
 ```html
 <section class="pair">

@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+	CONTENT_LANG_BOOTSTRAP,
+	CONTENT_LANG_SCRIPT,
+	classifyTextRole,
 	contentLangHref,
 	insertSwitchIntoArticleHtml,
 	looksBilingual,
+	looksBilingualLegacy,
+	markRecoveredLanguagePairs,
+	measureContentLang,
 	parseContentLangParam,
 } from '../src/content-lang';
 
@@ -117,5 +123,68 @@ describe('content language helpers', () => {
 				'<h1>Shared title</h1><figure><img alt="x"><figcaption>unmarked</figcaption></figure><pre><code>ls</code></pre>',
 			),
 		).toBe(false);
+	});
+
+	it('recovers unmarked Chinese siblings of class="en" blocks', () => {
+		const unmarkedZh = `<!doctype html><html><body><article>
+<p>花园里的番茄已经红了，枝头沉甸甸的。</p>
+<p class="en">The tomatoes in the garden have turned red and hang heavy.</p>
+<p>下午又去看了一次园子，叶子还是绿的。</p>
+<p class="en">Went back to the garden in the afternoon; the leaves were still green.</p>
+<p>明天打算把架子修一修。</p>
+<p class="en">Tomorrow I plan to mend the trellis.</p>
+</article></body></html>`;
+		expect(looksBilingualLegacy(unmarkedZh)).toBe(false);
+		expect(looksBilingual(unmarkedZh)).toBe(true);
+		const marked = markRecoveredLanguagePairs(unmarkedZh);
+		expect(marked).toMatch(/<p class="zh" lang="zh">花园里的番茄/);
+		expect(marked).toContain('class="en"');
+		const measure = measureContentLang(unmarkedZh);
+		expect(measure.switchShown).toBe(true);
+		expect(measure.chineseLeftInEnPct).toBeLessThan(15);
+		expect(measure.englishLeftInZhPct).toBeLessThan(15);
+	});
+
+	it('does not treat Chinese-only URL shortcut pages as bilingual', () => {
+		const shortcuts = `<!doctype html><html lang="zh-CN"><body><article lang="zh">
+<h1>常用快捷入口</h1>
+<p>把常用文档和表格放在一起，避免来回找链接。</p>
+<p>https://example.com/docs/handbook/intro</p>
+<p>表格在这里，打开即可填写当日记录。</p>
+<p>https://example.com/sheets/daily-log/view</p>
+<p>备用镜像：https://example.org/mirror/handbook</p>
+</article></body></html>`;
+		expect(classifyTextRole('https://example.com/docs/handbook/intro')).toBe('url');
+		expect(looksBilingual(shortcuts)).toBe(false);
+		expect(markRecoveredLanguagePairs(shortcuts)).toBe(shortcuts);
+		const measure = measureContentLang(shortcuts);
+		expect(measure.switchShown).toBe(false);
+		expect(measure.chineseLeftInEnPct).toBe(100);
+		expect(measure.wronglyHidden).toEqual([]);
+	});
+
+	it('does not flip a Chinese article with a single English quote into bilingual', () => {
+		const oneQuote = `<article lang="zh">
+<p>花园里的番茄已经红了，枝头沉甸甸的。</p>
+<p>下午又去看了一次园子，叶子还是绿的。</p>
+<p>明天打算把架子修一修，再浇一次水。</p>
+<p class="en">A single English quotation does not make this bilingual.</p>
+</article>`;
+		expect(looksBilingual(oneQuote)).toBe(false);
+		expect(measureContentLang(oneQuote).switchShown).toBe(false);
+	});
+
+	it('classifies URL and path-only lines as non-English', () => {
+		expect(classifyTextRole('https://example.com/a/b/c?x=1')).toBe('url');
+		expect(classifyTextRole('www.example.com/docs/page')).toBe('url');
+		expect(classifyTextRole('example.com/docs/handbook/intro')).toBe('url');
+		expect(classifyTextRole('把链接放在这里 https://example.com/x 继续说明中文内容即可。')).toBe('zh');
+		expect(classifyTextRole('The tomatoes in the garden have turned red.')).toBe('en');
+	});
+
+	it('does not persist a content-language choice from the head bootstrap', () => {
+		expect(CONTENT_LANG_BOOTSTRAP).not.toContain('localStorage.setItem');
+		expect(CONTENT_LANG_SCRIPT).toContain('if (persist)');
+		expect(CONTENT_LANG_SCRIPT).toContain("apply('both', false)");
 	});
 });

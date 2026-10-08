@@ -12,6 +12,7 @@
 		"types": "wrangler types",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest",
+		"content-lang:harness": "npx --yes tsx scripts/content-lang-harness.ts",
 		"cf-typegen": "wrangler types"
 	},
 	"devDependencies": {
