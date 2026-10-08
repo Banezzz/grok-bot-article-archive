@@ -77,6 +77,9 @@
     figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; }
     figcaption { margin-top: 8px; color: var(--muted); font-size: 0.88rem; text-align: center; }
     .gap { margin: 1.25em 0; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 0.9rem; }
+    .tweet-card { margin: 1.4em 0; padding: 0.2em 1em; border-left: 3px solid var(--border); }
+    /* The live /a/:slug view injects html[data-content-lang=zh|en|both] plus hide/show CSS.
+       Mark every language-specific block so that switch works without a re-upload. */
   </style>
 </head>
 <body>
@@ -88,18 +91,38 @@
     </header>
 
     <article>
-      <!-- Repeat .pair blocks. Keep Chinese first and the matching English source second. -->
+      <!-- Repeat .pair blocks. Always Chinese first, then the matching English source.
+           Mark each language-specific block with class zh|en AND lang="zh"|"en".
+           The article header can then show 中文 / English / 中英对照. -->
       <section class="pair">
         <p class="zh" lang="zh">{{PARAGRAPH_ZH}}</p>
         <p class="en" lang="en">{{PARAGRAPH_EN}}</p>
       </section>
 
-      <!-- Put each figure beside the paragraph or section it illustrates. -->
+      <!-- Language-specific headings use the same pair + zh/en marks. -->
+      <section class="pair">
+        <h2 class="zh" lang="zh">{{HEADING_ZH}}</h2>
+        <h2 class="en" lang="en">{{HEADING_EN}}</h2>
+      </section>
+
+      <!-- Put each figure beside the paragraph or section it illustrates.
+           Keep the image unmarked so every reading mode still shows it.
+           If the caption is bilingual, mark each line (or span) separately. -->
       <figure>
         <img src="{{IMAGE_DATA_URI}}" alt="{{IMAGE_ALT}}">
-        <figcaption>{{IMAGE_CAPTION}}</figcaption>
+        <figcaption>
+          <span class="zh" lang="zh">{{IMAGE_CAPTION_ZH}}</span>
+          <span class="en" lang="en">{{IMAGE_CAPTION_EN}}</span>
+        </figcaption>
       </figure>
 
+      <!-- Quoted tweet / card: same Chinese-then-English marks inside the card. -->
+      <blockquote class="tweet-card">
+        <p class="zh" lang="zh">{{TWEET_ZH}}</p>
+        <p class="en" lang="en">{{TWEET_EN}}</p>
+      </blockquote>
+
+      <!-- Unmarked pre/code, tables, and figures stay visible in every language mode. -->
       <!-- Repeat headings, lists, quotations, code blocks, pairs, and figures as needed. -->
       <!-- If an image failed after documented retries, insert a visible .gap notice here. -->
       <p class="gap" role="note">{{GAP_NOTICE_OR_REMOVE_THIS_PARAGRAPH}}</p>

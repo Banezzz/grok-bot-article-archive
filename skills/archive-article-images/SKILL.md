@@ -22,6 +22,7 @@ Goal: self-contained archive HTML with **all** meaningful article images embedde
    - zero unexplained “image missing” placeholders
    - cover/thumbnail set from cover or first chart
    - reading chrome uses the repo template theme tokens (`data-theme` + `prefers-color-scheme`); no hardcoded body/text colors
+   - bilingual pages mark each language-specific block (`class="zh"|"en"` and `lang="zh"|"en"`, Chinese first) so the article content-language switch can hide/show them
 7. **On gaps**: list missing URLs, what was tried, and whether an alternate mirror exists. Still upload the best partial archive with an explicit gap notice in the page and the chat reply.
 
 ## Non-goals

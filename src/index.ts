@@ -1,4 +1,5 @@
 import { clearSessionCookie, createSessionCookie, getSession, resolveUploadActor, toSessionUser, unauthorized } from './auth';
+import { parseContentLangParam } from './content-lang';
 import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemeParam, themeCookie, translateError } from './i18n';
 import { createFolder, deleteFolder, isValidFolderId, listFolders, moveFolder, renameFolder, setArticleFolders, toggleArticleStar } from './folders';
 import {
@@ -52,6 +53,7 @@ function ui(request: Request, overridePath?: string): Chrome {
 		locale: parseLocale(request),
 		theme: parseTheme(request),
 		path: overridePath ?? `${url.pathname}${url.search}`,
+		contentLang: parseContentLangParam(url.searchParams.get('lang')),
 	};
 }
 

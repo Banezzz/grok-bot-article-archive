@@ -30,7 +30,7 @@ The archive chrome sets `html[data-theme="light"]` or `html[data-theme="dark"]` 
 
 ### Bilingual
 
-Use one `.pair` per meaningful unit. Chinese first, then the matching English source:
+Use one `.pair` per meaningful unit. Chinese first, then the matching English source. Mark **every** language-specific block with both a class and a `lang` attribute so the article-page content-language switch (`中文` / `English` / `中英对照`) can hide or show them. The live `/a/:slug` view injects `html[data-content-lang=zh|en|both]` and CSS; already-stored HTML does not need a re-upload if it already uses these marks (or common equivalents such as `lang="zh-CN"`, `.cn`, `.bi-zh`, `.tr`, `.orig`, `.bi-en`).
 
 ```html
 <section class="pair">
@@ -41,9 +41,39 @@ Use one `.pair` per meaningful unit. Chinese first, then the matching English so
 
 Keep paragraphs, headings, lists, quotations, and code blocks aligned. Do not put a long translation at the end of the article where it cannot be matched to the source. Preserve code in `<pre><code>` and do not translate identifiers or commands.
 
+Headings that differ by language belong in a `.pair` too:
+
+```html
+<section class="pair">
+  <h2 class="zh" lang="zh">收获</h2>
+  <h2 class="en" lang="en">Harvest</h2>
+</section>
+```
+
+Leave shared media unmarked so every mode still shows it. If a figure caption or quoted tweet is bilingual, mark each line, not the wrapping `figure` / `img` / `pre`:
+
+```html
+<figure>
+  <img src="data:image/jpeg;base64,…" alt="Descriptive alt">
+  <figcaption>
+    <span class="zh" lang="zh">图注中文。</span>
+    <span class="en" lang="en">English caption.</span>
+  </figcaption>
+</figure>
+
+<blockquote class="tweet-card">
+  <p class="zh" lang="zh">推文中文。</p>
+  <p class="en" lang="en">Quoted tweet in English.</p>
+</blockquote>
+```
+
+Do not put `lang="zh"` on the whole `<article>` of a bilingual page — that wrapper is ignored by the switch (so a Chinese-only article is not treated as a language pair). The switch is hidden on pages that are not bilingual.
+
+The interface language toggle (`中文` / `EN`) only changes chrome labels. It is separate from this content-language control.
+
 ### Chinese-only
 
-Use `<article lang="zh">` and ordinary paragraphs, headings, lists, quotations, and figures. Do not manufacture English text just to fill a template. For other languages, make the Chinese translation readable and mark uncertain names or terminology in a short note.
+Use `<article lang="zh">` and ordinary paragraphs, headings, lists, quotations, and figures. Do not manufacture English text just to fill a template. For other languages, make the Chinese translation readable and mark uncertain names or terminology in a short note. A Chinese-only page should not include `.pair` / `.en` blocks; the content-language switch stays hidden.
 
 ## Embed images
 
@@ -84,4 +114,5 @@ Record the same gap in the upload report: URL, attempts, failure reason, and whe
 4. Measure the JSON body and HTML bytes; stay below 8 MiB.
 5. Confirm no remote assets are required for reading.
 6. Confirm colors come from theme variables and respond to `data-theme` plus `prefers-color-scheme`. Flip both themes mentally: body, primary text, muted English, links, and panels must stay legible.
-7. Upload with the API documented in [`UPLOAD_API.md`](UPLOAD_API.md), then verify the returned article path.
+7. For bilingual pages, confirm every language-specific paragraph, heading, caption, and quoted tweet is marked (`class="zh"|"en"` and `lang="zh"|"en"`, Chinese first). Unmarked figures, images, and code must remain visible in every content-language mode.
+8. Upload with the API documented in [`UPLOAD_API.md`](UPLOAD_API.md), then verify the returned article path.

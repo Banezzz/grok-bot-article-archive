@@ -28,7 +28,7 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `POST /share` | Session (owner or admin) | Turn public sharing on or off for one article (`slug`, `shared=1` or `0`, `next`). Default is private. |
 | `GET /settings` | Session | Upload token prefix; rotate and copy once |
 | `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens |
-| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus lang/theme). Serve-time injection adds chrome, lightbox, and a theme-override stylesheet so the light/dark toggle restyles the article body; stored R2 HTML is unchanged. |
+| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus interface lang/theme). Serve-time injection adds chrome, lightbox, a theme-override stylesheet, and a reader content-language switch (`?lang=zh\|en\|both`, remembered in `localStorage`) so bilingual articles can show Chinese, English, or both. Stored R2 HTML is unchanged. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
 | `GET /thumb/:slug` | Session, or public when that article is shared | Thumbnail (same visibility as the article page) |
 | `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Shared articles are not listed without a session. |
@@ -210,6 +210,7 @@ Rules the bot should follow:
 - Omit `slug` unless you want to **upsert** a known article. The same slug overwrites HTML and metadata.
 - Auto slugs look like `example-bilingual-note-2026-09-14`. Titles without Latin characters become `article-YYYY-MM-DD` plus a short suffix if needed.
 - Send `lang` as a short tag (`en`, `zh`, `en-zh`, …). It is shown as a badge on the list.
+- For bilingual HTML, mark each language-specific block (`class="zh"` / `class="en"` and `lang="zh"` / `lang="en"`, Chinese first) so the article header can switch 中文 / English / 中英对照.
 - Write `summary_zh` in the bot (the Worker only stores it). Omit it to keep an existing summary on upsert, or leave new articles without a summary.
 - Send `tags` as slugs. Known slugs use the seeded Chinese names. Unknown slugs are auto-created with `name_zh` equal to the slug. Omit `tags` on upsert to keep the current set; send `[]` to clear.
 - Thumbnails: prefer `thumbnail_url` or `thumbnail_base64`. If both are omitted, the Worker tries the first `<img src>` in the HTML (http(s) or data URI). Stored at `thumbs/{slug}.ext` and served at `/thumb/{slug}` (session required).
