@@ -14,6 +14,7 @@ import {
 } from './i18n';
 import { FOLDER_PICKER_SCRIPT, FOLDER_PICKER_STYLE, folderPickerMarkup, folderPickerStyleTag } from './folder-picker';
 import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
+import { SHARE_DIALOG_SCRIPT, SHARE_DIALOG_STYLE, shareDialogInjection, shareDialogMarkup, shareDialogStyleTag } from './share-dialog';
 import { isArticleShared, type ArticleSort, type ArticleView, type TagCount } from './store';
 import type { SessionUser, UserRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
@@ -41,32 +42,32 @@ html body {
   background-color: var(--bg) !important;
   color: var(--fg) !important;
 }
-html body > :not([data-archive-chrome]):not(#archive-lightbox):not(script):not(style) {
+html body > :not([data-archive-chrome]):not(#archive-lightbox):not(#archive-share-dialog):not(script):not(style) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not(#archive-lightbox):not(#archive-lightbox *) {
+html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not(#archive-lightbox):not(#archive-lightbox *):not(#archive-share-dialog):not(#archive-share-dialog *) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--fg) !important;
 }
-html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--muted) !important;
 }
-html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--accent) !important;
 }
-html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   border-color: var(--border) !important;
 }
-html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   background: var(--card) !important;
   background-color: var(--card) !important;
   color: var(--fg) !important;
 }
-html body blockquote:not([data-archive-chrome] *):not(#archive-lightbox *) {
+html body blockquote:not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   border-left-color: var(--border) !important;
 }
 `;
@@ -122,6 +123,8 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .card { display: grid; grid-template-columns: 132px 1fr; gap: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); transition: border-color .15s ease; }
 .card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
 .card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 12px; }
+.card-tools form { margin: 0; }
+.card-tools button { min-height: 40px; }
 .star { min-width: 2.4rem; justify-content: center; }
 .star.on { border-color: color-mix(in srgb, #d4a017 55%, var(--border)); color: #b8860b; background: color-mix(in srgb, #d4a017 10%, var(--card)); }
 .folder-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
@@ -201,15 +204,17 @@ function layout(title: string, body: string, chrome: Chrome): string {
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <title>${escapeHtml(title)}</title>
-  <style>${CHROME_STYLE}${FOLDER_PICKER_STYLE}${LIGHTBOX_STYLE}</style>
+  <style>${CHROME_STYLE}${FOLDER_PICKER_STYLE}${LIGHTBOX_STYLE}${SHARE_DIALOG_STYLE}</style>
   ${LANG_BOOTSTRAP}
   ${THEME_BOOTSTRAP}
 </head>
 <body>
 ${body}
 ${lightboxMarkup(chrome.locale)}
+${shareDialogMarkup(chrome.locale)}
 ${FOLDER_PICKER_SCRIPT}
 ${LIGHTBOX_SCRIPT}
+${SHARE_DIALOG_SCRIPT}
 </body>
 </html>`;
 }
@@ -432,18 +437,62 @@ export type ListPageModel = {
 	sort: ArticleSort;
 };
 
+function shareForm(article: ArticleView, nextPath: string, locale: Locale, shared: boolean, variant: 'page' | 'chrome'): string {
+	const label = shared ? t(locale, 'unshare') : t(locale, 'share');
+	const chromeStyle = shared
+		? 'appearance:none;border:1px solid rgba(159,224,196,.55);background:color-mix(in srgb,#9fe0c4 18%,transparent);color:#9fe0c4;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer'
+		: 'appearance:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:#f4f1ea;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer';
+	const button =
+		variant === 'page'
+			? `<button class="ghost" type="submit" aria-label="${escapeHtml(t(locale, 'shareAria'))}" aria-pressed="${shared ? 'true' : 'false'}">${escapeHtml(label)}</button>`
+			: `<button type="submit" aria-label="${escapeHtml(t(locale, 'shareAria'))}" aria-pressed="${shared ? 'true' : 'false'}" style="${chromeStyle}">${escapeHtml(label)}</button>`;
+	return `<form method="post" action="/share" style="margin:0">
+    <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
+    <input type="hidden" name="next" value="${escapeHtml(nextPath)}">
+    <input type="hidden" name="shared" value="${shared ? '0' : '1'}">
+    ${button}
+  </form>`;
+}
+
+function shareCopyButton(article: ArticleView, locale: Locale, variant: 'page' | 'chrome'): string {
+	const label = escapeHtml(t(locale, 'copyLink'));
+	const aria = escapeHtml(t(locale, 'copyLinkAria'));
+	const slug = escapeHtml(article.slug);
+	const title = escapeHtml(article.title);
+	if (variant === 'page') {
+		return `<button type="button" class="ghost" data-share-copy data-share-slug="${slug}" data-share-title="${title}" aria-label="${aria}">${label}</button>`;
+	}
+	return `<button type="button" data-share-copy data-share-slug="${slug}" data-share-title="${title}" aria-label="${aria}" style="appearance:none;border:1px solid rgba(159,224,196,.55);background:color-mix(in srgb,#9fe0c4 18%,transparent);color:#9fe0c4;border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${label}</button>`;
+}
+
+function shareOpenControl(article: ArticleView, locale: Locale, variant: 'page' | 'chrome', label: string, extraClass = ''): string {
+	const aria = escapeHtml(t(locale, 'shareOpenAria'));
+	const slug = escapeHtml(article.slug);
+	const title = escapeHtml(article.title);
+	const cls = extraClass ? ` class="${extraClass}"` : '';
+	if (variant === 'page') {
+		return `<button type="button"${cls} data-share-open data-share-slug="${slug}" data-share-title="${title}" aria-label="${aria}">${escapeHtml(label)}</button>`;
+	}
+	return `<button type="button"${cls} data-share-open data-share-slug="${slug}" data-share-title="${title}" aria-label="${aria}" style="appearance:none;border:0;background:transparent;color:#9fe0c4;padding:0;font:inherit;font-size:12px;cursor:pointer;text-align:left">${escapeHtml(label)}</button>`;
+}
+
 function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: string, locale: Locale): string {
 	const starLabel = article.starred ? t(locale, 'unstar') : t(locale, 'star');
 	const picker =
 		folders.length === 0
 			? `<a class="btn ghost" href="/folders">${escapeHtml(t(locale, 'createFirstFolder'))}</a>`
 			: folderPickerMarkup(article, folders, nextPath, locale, 'page');
+	const shared = isArticleShared(article);
+	const share = shared
+		? `${shareCopyButton(article, locale, 'page')}${shareForm(article, nextPath, locale, true, 'page')}`
+		: shareForm(article, nextPath, locale, false, 'page');
 	return `<div class="card-tools">
     <form method="post" action="/star">
       <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
       <input type="hidden" name="next" value="${escapeHtml(nextPath)}">
       <button class="ghost star${article.starred ? ' on' : ''}" type="submit" aria-label="${escapeHtml(t(locale, 'starAria'))}" aria-pressed="${article.starred ? 'true' : 'false'}">${article.starred ? '★' : '☆'} ${escapeHtml(starLabel)}</button>
     </form>
+    ${share}
     ${picker}
   </div>`;
 }
@@ -525,7 +574,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
                 ${owner}
                 ${when ? `<time datetime="${escapeHtml(article.published_at ?? article.created_at)}">${escapeHtml(when)}</time>` : ''}
                 ${article.lang ? `<span class="badge">${escapeHtml(article.lang)}</span>` : ''}
-                ${isArticleShared(article) ? `<span class="badge">${escapeHtml(t(locale, 'sharedBadge'))}</span>` : ''}
+                ${isArticleShared(article) ? shareOpenControl(article, locale, 'page', t(locale, 'sharedBadge'), 'badge share-open') : ''}
                 ${source ? `<a href="${escapeHtml(source)}" rel="noreferrer noopener">${escapeHtml(t(locale, 'source'))}</a>` : ''}
               </div>
               ${articleTools(article, folders, current, locale)}
@@ -791,22 +840,16 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
     <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
     <button type="submit" style="appearance:none;border:1px solid rgba(255,255,255,.22);background:transparent;color:${article.starred ? '#f5d76e' : '#f4f1ea'};border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${article.starred ? '★' : '☆'} ${escapeHtml(starLabel)}</button>
   </form>`;
-	const shareLabel = shared ? t(locale, 'unshare') : t(locale, 'share');
-	const share = `<form method="post" action="/share" style="margin:0">
-    <input type="hidden" name="slug" value="${escapeHtml(article.slug)}">
-    <input type="hidden" name="next" value="${escapeHtml(articlePath)}">
-    <input type="hidden" name="shared" value="${shared ? '0' : '1'}">
-    <button type="submit" aria-label="${escapeHtml(t(locale, 'shareAria'))}" aria-pressed="${shared ? 'true' : 'false'}" style="appearance:none;border:1px solid ${shared ? 'rgba(159,224,196,.55)' : 'rgba(255,255,255,.22)'};background:${shared ? 'color-mix(in srgb,#9fe0c4 18%,transparent)' : 'transparent'};color:${shared ? '#9fe0c4' : '#f4f1ea'};border-radius:8px;padding:6px 10px;font:inherit;cursor:pointer">${escapeHtml(shareLabel)}</button>
-  </form>`;
+	const share = shared
+		? `${shareOpenControl(article, locale, 'chrome', t(locale, 'sharingOn'))}${shareCopyButton(article, locale, 'chrome')}${shareForm(article, articlePath, locale, true, 'chrome')}`
+		: shareForm(article, articlePath, locale, false, 'chrome');
 	const folderForm =
 		folders.length === 0
 			? `<a href="/folders" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'createFirstFolder'))}</a>`
 			: folderPickerMarkup(article, folders, articlePath, locale, 'chrome');
-	const shareHint = shared ? `<span data-share-hint style="color:#9fe0c4;font-size:12px">${escapeHtml(t(locale, 'sharingOn'))}</span>` : '';
-	return `<nav data-archive-chrome data-archive-share="manage" data-article-shared="${shared ? '1' : '0'}" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
+	return `<nav data-archive-chrome data-archive-share="manage" data-article-shared="${shared ? '1' : '0'}" data-share-slug="${escapeHtml(article.slug)}" data-share-title="${escapeHtml(article.title)}" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
   <a href="/" style="color:#9fe0c4;text-decoration:none">${escapeHtml(t(locale, 'backArchive'))}</a>
   <span style="flex:1;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(article.title)}</span>
-  ${shareHint}
   ${share}
   ${star}
   ${folderForm}
@@ -836,8 +879,10 @@ export function injectArchiveChrome(
 		})
 		.on('head', {
 			element(element) {
+				element.append('<meta name="viewport" content="width=device-width, initial-scale=1">', { html: true });
 				if (manage) {
 					element.append(folderPickerStyleTag(), { html: true });
+					element.append(shareDialogStyleTag(), { html: true });
 				}
 				element.append(lightboxStyleTag(), { html: true });
 				element.append(articleThemeOverrideStyleTag(), { html: true });
@@ -848,6 +893,7 @@ export function injectArchiveChrome(
 				element.prepend(archiveBar(article, folders, chrome, access), { html: true });
 				if (manage) {
 					element.append(FOLDER_PICKER_SCRIPT, { html: true });
+					element.append(shareDialogInjection(chrome.locale), { html: true });
 				}
 				element.append(lightbox, { html: true });
 			},

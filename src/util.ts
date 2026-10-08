@@ -50,6 +50,21 @@ export function safeNextPath(value: string | null): string {
 	return value;
 }
 
+export function withSearchParams(path: string, params: Record<string, string>): string {
+	const safe = safeNextPath(path);
+	const hashIndex = safe.indexOf('#');
+	const noHash = hashIndex === -1 ? safe : safe.slice(0, hashIndex);
+	const hash = hashIndex === -1 ? '' : safe.slice(hashIndex);
+	const queryIndex = noHash.indexOf('?');
+	const pathname = queryIndex === -1 ? noHash : noHash.slice(0, queryIndex);
+	const search = new URLSearchParams(queryIndex === -1 ? '' : noHash.slice(queryIndex + 1));
+	for (const [key, value] of Object.entries(params)) {
+		search.set(key, value);
+	}
+	const query = search.toString();
+	return `${pathname}${query ? `?${query}` : ''}${hash}`;
+}
+
 export function likePattern(query: string): string {
 	return `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 }

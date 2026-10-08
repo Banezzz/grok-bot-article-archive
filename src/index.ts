@@ -44,7 +44,7 @@ import {
 	type UserRole,
 } from './users';
 import { getSiteIcon, isSiteIconPath, siteIconResponse } from './icons';
-import { htmlAttachmentDisposition, HttpError, isApiPath, isValidSlug, json, jsonError, MAX_UPLOAD_BYTES, readBodyWithLimit, safeNextPath } from './util';
+import { htmlAttachmentDisposition, HttpError, isApiPath, isValidSlug, json, jsonError, MAX_UPLOAD_BYTES, readBodyWithLimit, safeNextPath, withSearchParams } from './util';
 
 function ui(request: Request, overridePath?: string): Chrome {
 	const url = new URL(request.url);
@@ -273,7 +273,8 @@ async function handleShare(request: Request, env: Env, session: SessionUser): Pr
 	const shared = String(form.get('shared') ?? '') === '1';
 	const row = await requireVisibleArticle(env, session, slug);
 	await setArticleShared(env, row.slug, shared);
-	return formRedirect(new URL(request.url), next);
+	const dest = shared ? withSearchParams(next, { share: 'open', slug: row.slug }) : next;
+	return formRedirect(new URL(request.url), dest);
 }
 
 async function handleFolderMembership(request: Request, env: Env, session: SessionUser): Promise<Response> {
