@@ -2,11 +2,11 @@ import {
 	CONTENT_LANG_BOOTSTRAP,
 	CONTENT_LANG_HINT,
 	CONTENT_LANG_SCRIPT,
+	analyzeArticleLanguage,
 	contentLangStyleTag,
 	contentLangSwitch,
-	createBilingualScanState,
-	isBilingualScan,
-	observeLangMark,
+	insertSwitchIntoArticleHtml,
+	markRecoveredLanguagePairs,
 	type ContentLang,
 } from './content-lang';
 import type { FolderSummary } from './folders';
@@ -54,24 +54,24 @@ html body {
   background-color: var(--bg) !important;
   color: var(--fg) !important;
 }
-html body > :not([data-archive-chrome]):not(#archive-lightbox):not(#archive-share-dialog):not(script):not(style) {
+html body > :not([data-archive-chrome]):not([data-archive-content-lang-switch]):not(#archive-lightbox):not(#archive-share-dialog):not(script):not(style) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not(#archive-lightbox):not(#archive-lightbox *):not(#archive-share-dialog):not(#archive-share-dialog *) {
+html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not([data-archive-content-lang-switch]):not([data-archive-content-lang-switch] *):not(#archive-lightbox):not(#archive-lightbox *):not(#archive-share-dialog):not(#archive-share-dialog *) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--fg) !important;
 }
-html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--muted) !important;
 }
-html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   color: var(--accent) !important;
 }
-html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
   border-color: var(--border) !important;
 }
 html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
@@ -842,7 +842,7 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 		],
 		'theme-switch',
 	);
-	const prefs = `<span class="chrome-prefs">${contentLangSwitch(locale, articlePath, chrome.contentLang)}${lang}${theme}</span>`;
+	const prefs = `<span class="chrome-prefs">${lang}${theme}</span>`;
 	if (access === 'public') {
 		return `<nav data-archive-chrome data-archive-share="public" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
   <span style="color:#9fe0c4">${escapeHtml(t(locale, 'sharePublicNote'))}</span>
@@ -881,16 +881,20 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 </nav>`;
 }
 
-export function injectArchiveChrome(
+export async function injectArchiveChrome(
 	htmlResponse: Response,
 	article: ArticleView,
 	folders: FolderSummary[],
 	chrome: Chrome,
 	access: 'manage' | 'public' = 'manage',
-): Response {
+): Promise<Response> {
 	const lightbox = lightboxInjection(chrome.locale);
 	const manage = access === 'manage';
-	const scan = createBilingualScanState();
+	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
+	const switchMarkup = contentLangSwitch(chrome.locale, articlePath, chrome.contentLang);
+	const sourceHtml = await htmlResponse.text();
+	const analysis = analyzeArticleLanguage(sourceHtml);
+	const prepared = insertSwitchIntoArticleHtml(markRecoveredLanguagePairs(sourceHtml), switchMarkup);
 	return new HTMLRewriter()
 		.on('html', {
 			element(element) {
@@ -900,11 +904,9 @@ export function injectArchiveChrome(
 				if (chrome.contentLang) {
 					element.setAttribute('data-content-lang', chrome.contentLang);
 				}
-			},
-		})
-		.on('*', {
-			element(element) {
-				observeLangMark(scan, element.tagName, element.getAttribute('lang'), element.getAttribute('class'), element.getAttribute('data-lang'));
+				if (analysis.bilingual) {
+					element.setAttribute('data-bilingual', '1');
+				}
 			},
 		})
 		.on('head', {
@@ -930,11 +932,11 @@ export function injectArchiveChrome(
 				element.append(lightbox, { html: true });
 				element.append(CONTENT_LANG_SCRIPT, { html: true });
 				element.onEndTag((end) => {
-					if (isBilingualScan(scan)) {
+					if (analysis.bilingual) {
 						end.before(CONTENT_LANG_HINT, { html: true });
 					}
 				});
 			},
 		})
-		.transform(htmlResponse);
+		.transform(new Response(prepared, { status: htmlResponse.status, headers: htmlResponse.headers }));
 }

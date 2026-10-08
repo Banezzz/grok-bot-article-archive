@@ -851,6 +851,10 @@ a { color:#0b3d2e; }
 		const { cookie, token } = await setupAdmin();
 		const bilingualHtml = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
 <main><article>
+<header class="meta">
+  <h1>Garden notes</h1>
+  <p>Ada · <time datetime="2026-09-14">14 Sep 2026</time></p>
+</header>
 <section class="pair">
   <p class="zh" lang="zh">花园里的番茄已经红了。</p>
   <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
@@ -892,8 +896,8 @@ a { color:#0b3d2e; }
 		expect(bothHtml).toContain('data-content-lang-set="zh"');
 		expect(bothHtml).toContain('data-content-lang-set="en"');
 		expect(bothHtml).toContain('data-content-lang-set="both"');
-		expect(bothHtml).toContain('html[data-content-lang="zh"]');
-		expect(bothHtml).toContain('html[data-content-lang="en"]');
+		expect(bothHtml).toContain('html[data-bilingual][data-content-lang="zh"]');
+		expect(bothHtml).toContain('html[data-bilingual][data-content-lang="en"]');
 		expect(bothHtml).toContain('archive_content_lang');
 		expect(bothHtml).toContain('Article language');
 		expect(bothHtml).toContain('Bilingual');
@@ -901,11 +905,19 @@ a { color:#0b3d2e; }
 		expect(bothHtml).toContain('class="lang-switch"');
 		expect(bothHtml).toContain('data-archive-content-lang-hint');
 		expect(bothHtml).toContain('data-archive-content-lang-script');
+		expect(bothHtml).toContain('<nav data-archive-content-lang-switch');
+		const chromeAt = bothHtml.indexOf('<nav data-archive-chrome');
+		const chromeNavEnd = bothHtml.indexOf('</nav>', chromeAt);
+		expect(bothHtml.slice(chromeAt, chromeNavEnd)).not.toContain('data-archive-content-lang-switch');
+		const switchAt = bothHtml.indexOf('<nav data-archive-content-lang-switch');
+		expect(switchAt).toBeGreaterThan(bothHtml.indexOf('</header>'));
+		expect(switchAt).toBeLessThan(bothHtml.indexOf('花园里的番茄已经红了'));
 		expect(bothHtml).toContain('The tomatoes in the garden have turned red.');
 		expect(bothHtml).toContain('Ripe tomatoes');
 		expect(bothHtml).toContain('Went to see the garden today.');
 		expect(bothHtml).toContain('npm test');
 		expect(bothHtml).not.toMatch(/<html\b[^>]*\bdata-content-lang=/);
+		expect(bothHtml).toMatch(/<html\b[^>]*\bdata-bilingual="1"/);
 
 		const zhOnly = await SELF.fetch('http://example.com/a/bilingual-garden?lang=zh', {
 			headers: { cookie: `${cookie}; archive_lang=zh` },
@@ -928,8 +940,9 @@ a { color:#0b3d2e; }
 		});
 		const chinesePage = await chinese.text();
 		expect(chinesePage).toContain('data-content-lang-switch');
-		expect(chinesePage).toContain('content-lang-switch[hidden]');
+		expect(chinesePage).toContain('[data-archive-content-lang-switch][hidden]');
 		expect(chinesePage).not.toContain('data-archive-content-lang-hint');
+		expect(chinesePage).not.toMatch(/<html\b[^>]*\bdata-bilingual=/);
 		expect(chinesePage).toContain('data-archive-content-lang-script');
 
 		const stored = await env.ARTICLES.get('articles/bilingual-garden.html');
@@ -958,6 +971,95 @@ a { color:#0b3d2e; }
 		expect(sharedHtml).toMatch(/<html\b[^>]*\bdata-content-lang="en"/);
 		expect(sharedHtml).toContain('data-theme="dark"');
 		expect(sharedHtml).not.toContain('href="/"');
+		const sharedChrome = sharedHtml.indexOf('<nav data-archive-chrome');
+		expect(sharedHtml.slice(sharedChrome, sharedHtml.indexOf('</nav>', sharedChrome))).not.toContain('data-archive-content-lang-switch');
+	});
+
+	it('places the content-language switch after a bilingual title pair and at the top when there is no h1', async () => {
+		const { cookie, token } = await setupAdmin();
+		const pairTitle = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<section class="pair">
+  <h1 class="zh" lang="zh">花园笔记</h1>
+  <h1 class="en" lang="en">Garden notes</h1>
+</section>
+<section class="pair">
+  <p class="zh" lang="zh">花园里的番茄已经红了。</p>
+  <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
+</section>
+</article></main></body></html>`;
+		const noH1 = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<section class="pair">
+  <p class="zh" lang="zh">花园里的番茄已经红了。</p>
+  <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
+</section>
+</article></main></body></html>`;
+		expect((await upload(token, { slug: 'pair-title', title: 'Pair title', html: pairTitle })).status).toBe(200);
+		expect((await upload(token, { slug: 'no-h1-note', title: 'No heading', html: noH1 })).status).toBe(200);
+
+		const pairPage = await (await SELF.fetch('http://example.com/a/pair-title', { headers: { cookie } })).text();
+		const switchAt = pairPage.indexOf('<nav data-archive-content-lang-switch');
+		expect(switchAt).toBeGreaterThan(pairPage.indexOf('Garden notes'));
+		expect(switchAt).toBeGreaterThan(pairPage.indexOf('</section>'));
+		expect(switchAt).toBeLessThan(pairPage.indexOf('花园里的番茄已经红了'));
+		expect(pairPage.slice(pairPage.indexOf('<section class="pair">'), pairPage.indexOf('</section>') + 10)).not.toContain(
+			'<nav data-archive-content-lang-switch',
+		);
+
+		const noH1Page = await (await SELF.fetch('http://example.com/a/no-h1-note', { headers: { cookie } })).text();
+		expect(noH1Page).toContain('<nav data-archive-content-lang-switch');
+		const noH1Chrome = noH1Page.indexOf('<nav data-archive-chrome');
+		expect(noH1Page.slice(noH1Chrome, noH1Page.indexOf('</nav>', noH1Chrome))).not.toContain('data-archive-content-lang-switch');
+		const noH1Switch = noH1Page.indexOf('<nav data-archive-content-lang-switch');
+		expect(noH1Switch).toBeGreaterThan(noH1Page.indexOf('<article>'));
+		expect(noH1Switch).toBeLessThan(noH1Page.indexOf('花园里的番茄已经红了'));
+	});
+
+	it('recovers unmarked Chinese next to class=en siblings and leaves URL-only Chinese pages alone', async () => {
+		const { cookie, token } = await setupAdmin();
+		const unmarked = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<header class="meta"><h1>Garden notes</h1></header>
+<p>花园里的番茄已经红了，枝头沉甸甸的。</p>
+<p class="en">The tomatoes in the garden have turned red and hang heavy.</p>
+<p>下午又去看了一次园子，叶子还是绿的。</p>
+<p class="en">Went back to the garden in the afternoon; the leaves were still green.</p>
+<p>明天打算把架子修一修。</p>
+<p class="en">Tomorrow I plan to mend the trellis.</p>
+<pre><code>npm test</code></pre>
+</article></main></body></html>`;
+		const shortcuts = `<!doctype html><html lang="zh-CN"><head><title>Shortcuts</title></head><body>
+<main><article lang="zh">
+<h1>常用快捷入口</h1>
+<p>把常用文档和表格放在一起，避免来回找链接。</p>
+<p>https://example.com/docs/handbook/intro</p>
+<p>表格在这里，打开即可填写当日记录。</p>
+<p>https://example.com/sheets/daily-log/view</p>
+<p>备用镜像：https://example.org/mirror/handbook</p>
+</article></main></body></html>`;
+		expect((await upload(token, { slug: 'unmarked-garden', title: 'Unmarked garden', html: unmarked })).status).toBe(200);
+		expect((await upload(token, { slug: 'url-shortcuts', title: 'Shortcuts', lang: 'zh', html: shortcuts })).status).toBe(200);
+
+		const page = await (await SELF.fetch('http://example.com/a/unmarked-garden', { headers: { cookie } })).text();
+		expect(page).toMatch(/<html\b[^>]*\bdata-bilingual="1"/);
+		expect(page).toContain('data-archive-content-lang-hint');
+		expect(page).toContain('<nav data-archive-content-lang-switch');
+		expect(page).toMatch(/<p class="zh" lang="zh">花园里的番茄/);
+		const switchAt = page.indexOf('<nav data-archive-content-lang-switch');
+		expect(switchAt).toBeGreaterThan(page.indexOf('</header>'));
+		expect(switchAt).toBeLessThan(page.indexOf('花园里的番茄已经红了'));
+
+		const stored = await env.ARTICLES.get('articles/unmarked-garden.html');
+		expect(await stored!.text()).toBe(unmarked);
+		const download = await SELF.fetch('http://example.com/a/unmarked-garden/download', { headers: { cookie } });
+		expect(await download.text()).toBe(unmarked);
+
+		const shortcutPage = await (await SELF.fetch('http://example.com/a/url-shortcuts', { headers: { cookie } })).text();
+		expect(shortcutPage).not.toMatch(/<html\b[^>]*\bdata-bilingual=/);
+		expect(shortcutPage).not.toContain('data-archive-content-lang-hint');
+		expect(shortcutPage).toContain('https://example.com/docs/handbook/intro');
+		expect(shortcutPage).toContain('把常用文档和表格放在一起');
 	});
 
 	it('lets anyone with the link read a shared article and nothing else', async () => {
