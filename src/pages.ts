@@ -1,3 +1,14 @@
+import {
+	CONTENT_LANG_BOOTSTRAP,
+	CONTENT_LANG_HINT,
+	CONTENT_LANG_SCRIPT,
+	contentLangStyleTag,
+	contentLangSwitch,
+	createBilingualScanState,
+	isBilingualScan,
+	observeLangMark,
+	type ContentLang,
+} from './content-lang';
 import type { FolderSummary } from './folders';
 import {
 	formatUiDate,
@@ -23,6 +34,7 @@ export type Chrome = {
 	locale: Locale;
 	path: string;
 	theme: Theme | null;
+	contentLang: ContentLang | null;
 };
 
 const LIGHT_VARS = `--bg:#f3f0e8; --fg:#1a1814; --muted:#6b645a; --card:#fffdf8; --border:#e4ddd0; --accent:#0c6a52; --accent-fg:#fff; --shadow:0 1px 2px rgba(26,24,20,.05), 0 10px 28px rgba(26,24,20,.05); --ring:color-mix(in srgb, var(--accent) 28%, transparent); --danger:#9b2c20;`;
@@ -797,8 +809,10 @@ export function notFoundPage(chrome: Chrome): Response {
 function overlaySeg(
 	aria: string,
 	options: Array<{ href: string; label: string; active: boolean }>,
+	className = '',
 ): string {
-	return `<span role="group" aria-label="${escapeHtml(aria)}" style="display:inline-flex;border:1px solid rgba(255,255,255,.22);border-radius:999px;overflow:hidden;font-size:12px">
+	const cls = className ? ` class="${className}"` : '';
+	return `<span${cls} role="group" aria-label="${escapeHtml(aria)}" style="display:inline-flex;border:1px solid rgba(255,255,255,.22);border-radius:999px;overflow:hidden;font-size:12px">
     ${options
 			.map(
 				(option) =>
@@ -812,20 +826,28 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 	const locale = chrome.locale;
 	const shared = isArticleShared(article);
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
-	const lang = overlaySeg(t(locale, 'langToggle'), [
-		{ href: langSetHref('zh', articlePath), label: t(locale, 'langZh'), active: locale === 'zh' },
-		{ href: langSetHref('en', articlePath), label: t(locale, 'langEn'), active: locale === 'en' },
-	]);
-	const theme = overlaySeg(t(locale, 'themeToggle'), [
-		{ href: themeSetHref('light', articlePath), label: t(locale, 'themeLight'), active: chrome.theme === 'light' },
-		{ href: themeSetHref('dark', articlePath), label: t(locale, 'themeDark'), active: chrome.theme === 'dark' },
-	]);
+	const lang = overlaySeg(
+		t(locale, 'langToggle'),
+		[
+			{ href: langSetHref('zh', articlePath), label: t(locale, 'langZh'), active: locale === 'zh' },
+			{ href: langSetHref('en', articlePath), label: t(locale, 'langEn'), active: locale === 'en' },
+		],
+		'lang-switch',
+	);
+	const theme = overlaySeg(
+		t(locale, 'themeToggle'),
+		[
+			{ href: themeSetHref('light', articlePath), label: t(locale, 'themeLight'), active: chrome.theme === 'light' },
+			{ href: themeSetHref('dark', articlePath), label: t(locale, 'themeDark'), active: chrome.theme === 'dark' },
+		],
+		'theme-switch',
+	);
+	const prefs = `<span class="chrome-prefs">${contentLangSwitch(locale, articlePath, chrome.contentLang)}${lang}${theme}</span>`;
 	if (access === 'public') {
 		return `<nav data-archive-chrome data-archive-share="public" style="position:sticky;top:0;z-index:2147483647;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:8px 14px;font:13px/1.4 ui-sans-serif,system-ui,-apple-system,sans-serif;background:color-mix(in srgb,#111 82%,transparent);color:#f4f1ea;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(10px)">
   <span style="color:#9fe0c4">${escapeHtml(t(locale, 'sharePublicNote'))}</span>
   <span style="flex:1;min-width:12ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(article.title)}</span>
-  ${lang}
-  ${theme}
+  ${prefs}
 </nav>`;
 	}
 
@@ -853,8 +875,7 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
   ${share}
   ${star}
   ${folderForm}
-  ${lang}
-  ${theme}
+  ${prefs}
   ${sourceLink}
   ${download}
 </nav>`;
@@ -869,12 +890,21 @@ export function injectArchiveChrome(
 ): Response {
 	const lightbox = lightboxInjection(chrome.locale);
 	const manage = access === 'manage';
+	const scan = createBilingualScanState();
 	return new HTMLRewriter()
 		.on('html', {
 			element(element) {
 				if (chrome.theme) {
 					element.setAttribute('data-theme', chrome.theme);
 				}
+				if (chrome.contentLang) {
+					element.setAttribute('data-content-lang', chrome.contentLang);
+				}
+			},
+		})
+		.on('*', {
+			element(element) {
+				observeLangMark(scan, element.tagName, element.getAttribute('lang'), element.getAttribute('class'), element.getAttribute('data-lang'));
 			},
 		})
 		.on('head', {
@@ -886,6 +916,8 @@ export function injectArchiveChrome(
 				}
 				element.append(lightboxStyleTag(), { html: true });
 				element.append(articleThemeOverrideStyleTag(), { html: true });
+				element.append(contentLangStyleTag(), { html: true });
+				element.append(CONTENT_LANG_BOOTSTRAP, { html: true });
 			},
 		})
 		.on('body', {
@@ -896,6 +928,12 @@ export function injectArchiveChrome(
 					element.append(shareDialogInjection(chrome.locale), { html: true });
 				}
 				element.append(lightbox, { html: true });
+				element.append(CONTENT_LANG_SCRIPT, { html: true });
+				element.onEndTag((end) => {
+					if (isBilingualScan(scan)) {
+						end.before(CONTENT_LANG_HINT, { html: true });
+					}
+				});
 			},
 		})
 		.transform(htmlResponse);

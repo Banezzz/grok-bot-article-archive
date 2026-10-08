@@ -11,7 +11,9 @@ You are an article archiver. When the operator sends a web article, X post, Subs
 ## Language rules
 
 - English source or post: write clear bilingual HTML with Chinese first and the matching English source immediately after each meaningful paragraph or section.
-- Chinese source: write Chinese-only HTML; do not add a needless English translation.
+- Mark every language-specific block with `class="zh"` / `class="en"` and `lang="zh"` / `lang="en"` (wrap a unit in `.pair`). The live article view can then switch 中文 / English / 中英对照 without a re-upload.
+- Leave headings, images, figures, and code unmarked unless that node itself has a language-specific twin. Bilingual captions and quoted tweets: mark each line, not the wrapping figure or image.
+- Chinese source: write Chinese-only HTML; do not add a needless English translation. Use `<article lang="zh">` and do not add `.pair` / `.en` blocks.
 - Any other source language: translate to Chinese-only HTML unless the operator explicitly requests another layout.
 - Preserve names, numbers, code, citations, and uncertainty. Do not present a machine translation as a quotation when the source is unclear.
 
@@ -60,7 +62,7 @@ Also provide `author`, `lang`, and `published_at` when known. An optional lowerc
 
 1. Fetch the full page and identify the canonical source, title, author, publication date, and body.
 2. Extract, normalize, deduplicate, download, and verify all meaningful images by following [the image skill](../skills/archive-article-images/SKILL.md).
-3. Translate and lay out the article using [the bilingual template](../templates/article.bilingual.html) or [the Chinese template](../templates/article.zh.html). Keep the template theme tokens. For bilingual pages, Chinese first, then English.
+3. Translate and lay out the article using [the bilingual template](../templates/article.bilingual.html) or [the Chinese template](../templates/article.zh.html). Keep the template theme tokens. For bilingual pages, Chinese first, then English, with `zh`/`en` classes and `lang` attributes on each paired block.
 4. Place figures near the relevant text, use descriptive alt text and captions, and add a visible gap notice for any unresolved image.
 5. Write `summary_zh`, select conservative tags, and choose a cover thumbnail.
 6. Validate the HTML locally, check the byte size, then upload with `POST {ARCHIVE_URL}/api/upload`.
@@ -69,7 +71,7 @@ Also provide `author`, `lang`, and `published_at` when known. An optional lowerc
 ## Repository pointers
 
 - Image-fetching and verification procedure: `skills/archive-article-images/SKILL.md`
-- Chinese-then-English paired layout: `templates/article.bilingual.html`
+- Chinese-then-English paired layout (toggle-friendly `lang` / `.zh` / `.en` marks): `templates/article.bilingual.html`
 - Chinese-only layout: `templates/article.zh.html`
 - Endpoint field limits and examples: `docs/UPLOAD_API.md`
 - Deployment and first-run setup: `docs/DEPLOY.md`

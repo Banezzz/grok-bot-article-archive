@@ -847,6 +847,119 @@ a { color:#0b3d2e; }
 		expect(listHtml).toContain('href="/a/photo-note"');
 	});
 
+	it('injects a content-language switch on bilingual articles and hides it for Chinese-only', async () => {
+		const { cookie, token } = await setupAdmin();
+		const bilingualHtml = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<section class="pair">
+  <p class="zh" lang="zh">花园里的番茄已经红了。</p>
+  <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
+</section>
+<section class="pair">
+  <h2 class="zh" lang="zh">收获</h2>
+  <h2 class="en" lang="en">Harvest</h2>
+</section>
+<figure>
+  <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="tomato">
+  <figcaption>
+    <span class="zh" lang="zh">成熟的番茄</span>
+    <span class="en" lang="en">Ripe tomatoes</span>
+  </figcaption>
+</figure>
+<blockquote class="tweet-card">
+  <p class="zh" lang="zh">今天去看了园子。</p>
+  <p class="en" lang="en">Went to see the garden today.</p>
+</blockquote>
+<pre><code>npm test</code></pre>
+</article></main></body></html>`;
+		const chineseHtml = `<!doctype html><html lang="zh-CN"><head><title>笔记</title></head><body>
+<main><article lang="zh"><h1>花园笔记</h1><p>花园里的番茄已经红了。</p><figure><img alt="番茄"><figcaption>成熟的番茄</figcaption></figure><pre><code>npm test</code></pre></article></main></body></html>`;
+
+		expect((await upload(token, { slug: 'bilingual-garden', title: 'Bilingual garden', html: bilingualHtml })).status).toBe(
+			200,
+		);
+		expect((await upload(token, { slug: 'chinese-note', title: 'Chinese note', lang: 'zh', html: chineseHtml })).status).toBe(
+			200,
+		);
+
+		const both = await SELF.fetch('http://example.com/a/bilingual-garden', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		expect(both.status).toBe(200);
+		const bothHtml = await both.text();
+		expect(bothHtml).toContain('data-archive-content-lang');
+		expect(bothHtml).toContain('data-content-lang-switch');
+		expect(bothHtml).toContain('data-content-lang-set="zh"');
+		expect(bothHtml).toContain('data-content-lang-set="en"');
+		expect(bothHtml).toContain('data-content-lang-set="both"');
+		expect(bothHtml).toContain('html[data-content-lang="zh"]');
+		expect(bothHtml).toContain('html[data-content-lang="en"]');
+		expect(bothHtml).toContain('archive_content_lang');
+		expect(bothHtml).toContain('Article language');
+		expect(bothHtml).toContain('Bilingual');
+		expect(bothHtml).toContain('Interface language');
+		expect(bothHtml).toContain('class="lang-switch"');
+		expect(bothHtml).toContain('data-archive-content-lang-hint');
+		expect(bothHtml).toContain('data-archive-content-lang-script');
+		expect(bothHtml).toContain('The tomatoes in the garden have turned red.');
+		expect(bothHtml).toContain('Ripe tomatoes');
+		expect(bothHtml).toContain('Went to see the garden today.');
+		expect(bothHtml).toContain('npm test');
+		expect(bothHtml).not.toMatch(/<html\b[^>]*\bdata-content-lang=/);
+
+		const zhOnly = await SELF.fetch('http://example.com/a/bilingual-garden?lang=zh', {
+			headers: { cookie: `${cookie}; archive_lang=zh` },
+		});
+		const zhHtml = await zhOnly.text();
+		expect(zhHtml).toMatch(/<html\b[^>]*\bdata-content-lang="zh"/);
+		expect(zhHtml).toContain('正文语言');
+		expect(zhHtml).toContain('中英对照');
+		expect(zhHtml).toContain('href="/a/bilingual-garden?lang=en"');
+		expect(zhHtml).toContain('href="/a/bilingual-garden"');
+
+		const enOnly = await SELF.fetch('http://example.com/a/bilingual-garden?lang=en', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		const enHtml = await enOnly.text();
+		expect(enHtml).toMatch(/<html\b[^>]*\bdata-content-lang="en"/);
+
+		const chinese = await SELF.fetch('http://example.com/a/chinese-note', {
+			headers: { cookie: `${cookie}; archive_lang=en` },
+		});
+		const chinesePage = await chinese.text();
+		expect(chinesePage).toContain('data-content-lang-switch');
+		expect(chinesePage).toContain('content-lang-switch[hidden]');
+		expect(chinesePage).not.toContain('data-archive-content-lang-hint');
+		expect(chinesePage).toContain('data-archive-content-lang-script');
+
+		const stored = await env.ARTICLES.get('articles/bilingual-garden.html');
+		expect(await stored!.text()).toBe(bilingualHtml);
+
+		const download = await SELF.fetch('http://example.com/a/bilingual-garden/download', {
+			headers: { cookie },
+		});
+		expect(await download.text()).toBe(bilingualHtml);
+
+		const enable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'bilingual-garden', shared: '1', next: '/a/bilingual-garden' }),
+			redirect: 'manual',
+		});
+		expect(enable.status).toBe(303);
+
+		const shared = await SELF.fetch('http://example.com/a/bilingual-garden?lang=en', {
+			headers: { cookie: 'archive_lang=en; archive_theme=dark' },
+		});
+		expect(shared.status).toBe(200);
+		const sharedHtml = await shared.text();
+		expect(sharedHtml).toContain('data-archive-share="public"');
+		expect(sharedHtml).toContain('data-content-lang-switch');
+		expect(sharedHtml).toMatch(/<html\b[^>]*\bdata-content-lang="en"/);
+		expect(sharedHtml).toContain('data-theme="dark"');
+		expect(sharedHtml).not.toContain('href="/"');
+	});
+
 	it('lets anyone with the link read a shared article and nothing else', async () => {
 		const admin = await setupAdmin();
 		const readerToken = await addUser(admin.cookie, READER_USER, READER_PASS);
