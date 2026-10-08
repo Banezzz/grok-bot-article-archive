@@ -878,6 +878,7 @@ a { color:#0b3d2e; }
 			redirect: 'manual',
 		});
 		expect(enable.status).toBe(303);
+		expect(enable.headers.get('location')).toBe('http://example.com/a/shared-note?share=open&slug=shared-note');
 
 		const ownerPage = await SELF.fetch('http://example.com/a/shared-note', {
 			headers: { cookie: `${admin.cookie}; archive_lang=en` },
@@ -888,9 +889,20 @@ a { color:#0b3d2e; }
 		expect(ownerHtml).toContain('name="shared" value="0"');
 		expect(ownerHtml).toContain('Anyone with the link can read this article.');
 		expect(ownerHtml).toContain('Stop sharing');
+		expect(ownerHtml).toContain('id="archive-share-dialog"');
+		expect(ownerHtml).toContain('data-share-copy');
+		expect(ownerHtml).toContain('Copy link');
+		expect(ownerHtml).toContain('data-share-open');
+		expect(ownerHtml).toContain('Public link');
 
 		const list = await SELF.fetch('http://example.com/', { headers: { cookie: `${admin.cookie}; archive_lang=en` } });
-		expect(await list.text()).toContain('Shared');
+		const listHtml = await list.text();
+		expect(listHtml).toContain('Shared');
+		expect(listHtml).toContain('id="archive-share-dialog"');
+		expect(listHtml).toContain('data-share-copy');
+		expect(listHtml).toContain('Copy link');
+		expect(listHtml).toContain('data-share-open');
+		expect(listHtml).toContain('data-share-slug="shared-note"');
 
 		const anonymousArticle = await SELF.fetch('http://example.com/a/shared-note', {
 			headers: { cookie: 'archive_lang=en' },
@@ -902,6 +914,8 @@ a { color:#0b3d2e; }
 		expect(sharedHtml).toContain('Only this page.');
 		expect(sharedHtml).toContain('data-archive-share="public"');
 		expect(sharedHtml).toContain('Shared article');
+		expect(sharedHtml).not.toContain('id="archive-share-dialog"');
+		expect(sharedHtml).not.toContain('data-share-copy');
 		expect(sharedHtml).not.toContain('href="/"');
 		expect(sharedHtml).not.toContain('/folders');
 		expect(sharedHtml).not.toContain('/settings');
@@ -976,6 +990,7 @@ a { color:#0b3d2e; }
 			redirect: 'manual',
 		});
 		expect(disable.status).toBe(303);
+		expect(disable.headers.get('location')).toBe('http://example.com/a/shared-note');
 
 		const afterOff = await SELF.fetch('http://example.com/a/shared-note', { redirect: 'manual' });
 		expect(afterOff.status).toBe(302);
@@ -1012,5 +1027,29 @@ a { color:#0b3d2e; }
 			headers: { cookie: `${readerCookie}; archive_lang=en` },
 		});
 		expect(await ownerToggle.text()).toContain('action="/share"');
+	});
+
+	it('opens the share dialog from the article list after enabling share', async () => {
+		const admin = await setupAdmin();
+		expect((await upload(admin.token, { slug: 'list-share', title: 'List share' })).status).toBe(200);
+
+		const enable = await SELF.fetch('http://example.com/share', {
+			method: 'POST',
+			headers: { cookie: admin.cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ slug: 'list-share', shared: '1', next: '/?q=List' }),
+			redirect: 'manual',
+		});
+		expect(enable.status).toBe(303);
+		expect(enable.headers.get('location')).toBe('http://example.com/?q=List&share=open&slug=list-share');
+
+		const list = await SELF.fetch('http://example.com/?q=List', { headers: { cookie: admin.cookie } });
+		const html = await list.text();
+		expect(html).toContain('id="archive-share-dialog"');
+		expect(html).toContain('复制链接');
+		expect(html).toContain('已复制');
+		expect(html).toContain('公开链接');
+		expect(html).toContain('data-share-copy');
+		expect(html).toContain('data-share-slug="list-share"');
+		expect(html).toContain('取消分享');
 	});
 });
