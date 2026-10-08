@@ -851,6 +851,10 @@ a { color:#0b3d2e; }
 		const { cookie, token } = await setupAdmin();
 		const bilingualHtml = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
 <main><article>
+<header class="meta">
+  <h1>Garden notes</h1>
+  <p>Ada · <time datetime="2026-09-14">14 Sep 2026</time></p>
+</header>
 <section class="pair">
   <p class="zh" lang="zh">花园里的番茄已经红了。</p>
   <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
@@ -901,6 +905,13 @@ a { color:#0b3d2e; }
 		expect(bothHtml).toContain('class="lang-switch"');
 		expect(bothHtml).toContain('data-archive-content-lang-hint');
 		expect(bothHtml).toContain('data-archive-content-lang-script');
+		expect(bothHtml).toContain('<nav data-archive-content-lang-switch');
+		const chromeAt = bothHtml.indexOf('<nav data-archive-chrome');
+		const chromeNavEnd = bothHtml.indexOf('</nav>', chromeAt);
+		expect(bothHtml.slice(chromeAt, chromeNavEnd)).not.toContain('data-archive-content-lang-switch');
+		const switchAt = bothHtml.indexOf('<nav data-archive-content-lang-switch');
+		expect(switchAt).toBeGreaterThan(bothHtml.indexOf('</header>'));
+		expect(switchAt).toBeLessThan(bothHtml.indexOf('花园里的番茄已经红了'));
 		expect(bothHtml).toContain('The tomatoes in the garden have turned red.');
 		expect(bothHtml).toContain('Ripe tomatoes');
 		expect(bothHtml).toContain('Went to see the garden today.');
@@ -928,7 +939,7 @@ a { color:#0b3d2e; }
 		});
 		const chinesePage = await chinese.text();
 		expect(chinesePage).toContain('data-content-lang-switch');
-		expect(chinesePage).toContain('content-lang-switch[hidden]');
+		expect(chinesePage).toContain('[data-archive-content-lang-switch][hidden]');
 		expect(chinesePage).not.toContain('data-archive-content-lang-hint');
 		expect(chinesePage).toContain('data-archive-content-lang-script');
 
@@ -958,6 +969,46 @@ a { color:#0b3d2e; }
 		expect(sharedHtml).toMatch(/<html\b[^>]*\bdata-content-lang="en"/);
 		expect(sharedHtml).toContain('data-theme="dark"');
 		expect(sharedHtml).not.toContain('href="/"');
+		const sharedChrome = sharedHtml.indexOf('<nav data-archive-chrome');
+		expect(sharedHtml.slice(sharedChrome, sharedHtml.indexOf('</nav>', sharedChrome))).not.toContain('data-archive-content-lang-switch');
+	});
+
+	it('places the content-language switch after a bilingual title pair and at the top when there is no h1', async () => {
+		const { cookie, token } = await setupAdmin();
+		const pairTitle = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<section class="pair">
+  <h1 class="zh" lang="zh">花园笔记</h1>
+  <h1 class="en" lang="en">Garden notes</h1>
+</section>
+<section class="pair">
+  <p class="zh" lang="zh">花园里的番茄已经红了。</p>
+  <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
+</section>
+</article></main></body></html>`;
+		const noH1 = `<!doctype html><html lang="zh-CN"><head><title>Garden</title></head><body>
+<main><article>
+<section class="pair">
+  <p class="zh" lang="zh">花园里的番茄已经红了。</p>
+  <p class="en" lang="en">The tomatoes in the garden have turned red.</p>
+</section>
+</article></main></body></html>`;
+		expect((await upload(token, { slug: 'pair-title', title: 'Pair title', html: pairTitle })).status).toBe(200);
+		expect((await upload(token, { slug: 'no-h1-note', title: 'No heading', html: noH1 })).status).toBe(200);
+
+		const pairPage = await (await SELF.fetch('http://example.com/a/pair-title', { headers: { cookie } })).text();
+		const switchAt = pairPage.indexOf('<nav data-archive-content-lang-switch');
+		expect(switchAt).toBeGreaterThan(pairPage.indexOf('Garden notes'));
+		expect(switchAt).toBeGreaterThan(pairPage.indexOf('</section>'));
+		expect(switchAt).toBeLessThan(pairPage.indexOf('花园里的番茄已经红了'));
+		expect(pairPage.slice(pairPage.indexOf('<section class="pair">'), pairPage.indexOf('</section>') + 10)).not.toContain(
+			'<nav data-archive-content-lang-switch',
+		);
+
+		const noH1Page = await (await SELF.fetch('http://example.com/a/no-h1-note', { headers: { cookie } })).text();
+		expect(noH1Page).toContain('<nav data-archive-content-lang-switch');
+		const noH1Chrome = noH1Page.indexOf('<nav data-archive-chrome');
+		expect(noH1Page.slice(noH1Chrome, noH1Page.indexOf('</nav>', noH1Chrome))).not.toContain('data-archive-content-lang-switch');
 	});
 
 	it('lets anyone with the link read a shared article and nothing else', async () => {

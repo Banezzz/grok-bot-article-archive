@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	contentLangHref,
+	insertSwitchIntoArticleHtml,
 	looksBilingual,
 	parseContentLangParam,
 } from '../src/content-lang';
@@ -83,6 +84,31 @@ describe('content language helpers', () => {
 				'<article lang="zh"><p lang="zh">一段中文。</p><p lang="zh">又一段中文。</p><p lang="zh">第三段中文。</p><p lang="zh">第四段中文。</p><p lang="zh">第五段中文。</p><p lang="zh">第六段中文。</p><blockquote lang="en">A single English quote.</blockquote></article>',
 			),
 		).toBe(false);
+	});
+
+	it('inserts the switch after header.meta, after a title pair, and at the article top when there is no h1', () => {
+		const mark = '<nav data-archive-content-lang-switch></nav>';
+		const withHeader = insertSwitchIntoArticleHtml(
+			'<main><article><header class="meta"><h1>Title</h1><p class="byline">Ada</p></header><section class="pair"><p class="zh" lang="zh">中</p></section></article></main>',
+			mark,
+		);
+		expect(withHeader.indexOf(mark)).toBeGreaterThan(withHeader.indexOf('</header>'));
+		expect(withHeader.indexOf(mark)).toBeLessThan(withHeader.indexOf('class="pair"'));
+
+		const withPairTitle = insertSwitchIntoArticleHtml(
+			'<article><section class="pair"><h1 class="zh" lang="zh">中文标题</h1><h1 class="en" lang="en">English title</h1></section><section class="pair"><p class="zh" lang="zh">中</p></section></article>',
+			mark,
+		);
+		expect(withPairTitle.indexOf(mark)).toBeGreaterThan(withPairTitle.indexOf('English title'));
+		expect(withPairTitle.indexOf(mark)).toBeLessThan(withPairTitle.lastIndexOf('class="pair"'));
+		expect(withPairTitle.slice(withPairTitle.indexOf('<section'), withPairTitle.indexOf('</section>'))).not.toContain(mark);
+
+		const noHeading = insertSwitchIntoArticleHtml(
+			'<article><section class="pair"><p class="zh" lang="zh">中</p><p class="en" lang="en">En</p></section></article>',
+			mark,
+		);
+		expect(noHeading.indexOf(mark)).toBeGreaterThan(noHeading.indexOf('<article>'));
+		expect(noHeading.indexOf(mark)).toBeLessThan(noHeading.indexOf('class="pair"'));
 	});
 
 	it('ignores unmarked headings, figures, and code when deciding bilingual', () => {
