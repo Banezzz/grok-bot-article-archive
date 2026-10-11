@@ -1,5 +1,7 @@
 import { env, SELF } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
+import { assertD1BindCount, D1_MAX_BOUND_PARAMS } from '../src/d1';
+import { DEFAULT_LIST_LIMIT, MAX_LIST_LIMIT } from '../src/store';
 
 const LEGACY_UPLOAD_TOKEN = 'dev-upload-token-change-me';
 const ADMIN_USER = 'admin';
@@ -1267,5 +1269,176 @@ a { color:#0b3d2e; }
 		expect(html).toContain('data-share-copy');
 		expect(html).toContain('data-share-slug="list-share"');
 		expect(html).toContain('取消分享');
+	});
+
+	it('rejects statements that would exceed the D1 bind cap', () => {
+		expect(() => assertD1BindCount(D1_MAX_BOUND_PARAMS)).not.toThrow();
+		expect(() => assertD1BindCount(D1_MAX_BOUND_PARAMS + 1)).toThrow(/D1 statement binds 101 parameters/);
+	});
+
+	it('pages every list view through 150 articles without binding more than 100 parameters', async () => {
+		const admin = await setupAdmin();
+		const owner = await env.DB.prepare('SELECT id FROM users WHERE username = ?').bind(ADMIN_USER).first<{ id: string }>();
+		expect(owner?.id).toBeTruthy();
+		const ownerId = owner!.id;
+
+		const originalPrepare = env.DB.prepare.bind(env.DB);
+		env.DB.prepare = ((query: string) => {
+			const stmt = originalPrepare(query);
+			const originalBind = stmt.bind.bind(stmt);
+			stmt.bind = (...values: unknown[]) => {
+				assertD1BindCount(values.length, query.slice(0, 96));
+				return originalBind(...values);
+			};
+			return stmt;
+		}) as D1Database['prepare'];
+
+		const createdFolder = await SELF.fetch('http://example.com/folders', {
+			method: 'POST',
+			headers: { cookie: admin.cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({ name: 'Bulk box' }),
+		});
+		const folderId = (await createdFolder.text()).match(/action="\/folders\/([^/]+)\/rename"/)?.[1];
+		expect(folderId).toBeTruthy();
+
+		const articleInserts: D1PreparedStatement[] = [];
+		const extraInserts: D1PreparedStatement[] = [];
+		const expectedJoined: string[] = [];
+		const expectedTagged: string[] = [];
+		const expectedStarred: string[] = [];
+		const expectedFolder: string[] = [];
+		const expectedSearch: string[] = [];
+		const total = 150;
+		for (let i = 0; i < total; i++) {
+			const slug = `bulk-${String(i).padStart(3, '0')}`;
+			const id = `bulk-id-${String(i).padStart(3, '0')}`;
+			const created = new Date(Date.UTC(2026, 0, 1, 0, i, 0)).toISOString();
+			const title = i % 10 === 0 ? `Needle bulk ${i}` : `Archive bulk ${i}`;
+			articleInserts.push(
+				env.DB.prepare(
+					`INSERT INTO articles (id, slug, title, source_url, created_at, updated_at, r2_key, owner_id, summary_zh, published_at)
+					 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				).bind(id, slug, title, `https://example.com/${slug}`, created, created, `articles/${slug}.html`, ownerId, '摘要', created),
+			);
+			expectedJoined.unshift(slug);
+			if (i % 2 === 0) {
+				extraInserts.push(env.DB.prepare('INSERT INTO article_tags (article_id, tag_id) VALUES (?, ?)').bind(id, 'tag-ai'));
+				expectedTagged.unshift(slug);
+			}
+			if (i % 2 === 1) {
+				extraInserts.push(
+					env.DB.prepare('INSERT INTO article_stars (user_id, article_id, created_at) VALUES (?, ?, ?)').bind(ownerId, id, created),
+				);
+				expectedStarred.unshift(slug);
+			}
+			if (i % 3 === 0) {
+				extraInserts.push(
+					env.DB.prepare('INSERT INTO folder_articles (folder_id, article_id, created_at) VALUES (?, ?, ?)').bind(folderId, id, created),
+				);
+				expectedFolder.unshift(slug);
+			}
+			if (i % 10 === 0) {
+				expectedSearch.unshift(slug);
+			}
+		}
+		for (const chunk of [articleInserts, extraInserts]) {
+			for (let offset = 0; offset < chunk.length; offset += 50) {
+				await env.DB.batch(chunk.slice(offset, offset + 50));
+			}
+		}
+		await env.ARTICLES.put('articles/bulk-149.html', '<!doctype html><html><body><h1>Bulk 149</h1></body></html>', {
+			httpMetadata: { contentType: 'text/html; charset=utf-8' },
+		});
+
+		async function collect(path: string): Promise<string[]> {
+			const slugs: string[] = [];
+			let cursor: string | null = null;
+			for (let page = 0; page < 20; page++) {
+				const url = new URL(path, 'http://example.com');
+				url.searchParams.set('limit', '40');
+				if (cursor) {
+					url.searchParams.set('cursor', cursor);
+				}
+				const response = await SELF.fetch(url.toString(), { headers: { cookie: admin.cookie } });
+				expect(response.status).toBe(200);
+				const body = (await response.json()) as {
+					ok: boolean;
+					articles: Array<{ slug: string }>;
+					next_cursor: string | null;
+					limit: number;
+				};
+				expect(body.ok).toBe(true);
+				expect(body.limit).toBe(40);
+				expect(body.articles.length).toBeGreaterThan(0);
+				expect(body.articles.length).toBeLessThanOrEqual(40);
+				slugs.push(...body.articles.map((row) => row.slug));
+				if (!body.next_cursor) {
+					return slugs;
+				}
+				cursor = body.next_cursor;
+			}
+			throw new Error(`did not exhaust ${path}`);
+		}
+
+		const first = (await (
+			await SELF.fetch('http://example.com/api/articles', { headers: { cookie: admin.cookie } })
+		).json()) as { articles: Array<{ slug: string }>; next_cursor: string | null; limit: number };
+		expect(first.limit).toBe(DEFAULT_LIST_LIMIT);
+		expect(first.articles).toHaveLength(DEFAULT_LIST_LIMIT);
+		expect(first.next_cursor).toBeTruthy();
+		expect(first.articles.map((row) => row.slug)).toEqual(expectedJoined.slice(0, DEFAULT_LIST_LIMIT));
+
+		const capped = (await (
+			await SELF.fetch('http://example.com/api/articles?limit=1000', { headers: { cookie: admin.cookie } })
+		).json()) as { articles: Array<{ slug: string }>; limit: number; next_cursor: string | null };
+		expect(capped.limit).toBe(MAX_LIST_LIMIT);
+		expect(capped.articles).toHaveLength(MAX_LIST_LIMIT);
+		expect(capped.next_cursor).toBeTruthy();
+
+		expect(await collect('/api/articles')).toEqual(expectedJoined);
+		expect(await collect('/api/articles?sort=joined')).toEqual(expectedJoined);
+		expect(await collect('/api/articles?sort=published')).toEqual(expectedJoined);
+		expect(await collect('/api/articles?tag=ai')).toEqual(expectedTagged);
+		expect(await collect('/api/articles?starred=1')).toEqual(expectedStarred);
+		expect(await collect(`/api/articles?folder=${folderId}`)).toEqual(expectedFolder);
+		expect(await collect('/api/articles?q=Needle')).toEqual(expectedSearch);
+
+		const badCursor = await SELF.fetch('http://example.com/api/articles?cursor=not-a-cursor', {
+			headers: { cookie: admin.cookie },
+		});
+		expect(badCursor.status).toBe(400);
+		expect(await badCursor.json()).toEqual({ ok: false, error: 'invalid cursor' });
+
+		const home = await SELF.fetch('http://example.com/', { headers: { cookie: `${admin.cookie}; archive_lang=zh` } });
+		expect(home.status).toBe(200);
+		const homeHtml = await home.text();
+		const homeSlugs = [...homeHtml.matchAll(/class="card"[\s\S]*?href="\/a\/([^"]+)"/g)].map((match) => match[1]);
+		expect(homeSlugs).toEqual(expectedJoined.slice(0, DEFAULT_LIST_LIMIT));
+		expect(homeHtml).toContain('data-load-more');
+		expect(homeHtml).toContain('加载更多');
+		expect(homeHtml).toContain('data-article-list');
+		expect(homeHtml).not.toContain('bulk-000');
+
+		const nextHref = homeHtml.match(/data-load-more[^>]*href="([^"]+)"/)?.[1];
+		expect(nextHref).toBeTruthy();
+		const cursor = new URL(nextHref!.replace(/&amp;/g, '&'), 'http://example.com').searchParams.get('cursor');
+		expect(cursor).toBeTruthy();
+
+		const partial = await SELF.fetch(`http://example.com/?partial=1&cursor=${encodeURIComponent(cursor ?? '')}`, {
+			headers: { cookie: admin.cookie },
+		});
+		expect(partial.status).toBe(200);
+		const partialHtml = await partial.text();
+		expect(partialHtml).toContain('class="card"');
+		expect(partialHtml).not.toContain('<html');
+		expect(partialHtml).toContain('action="/star"');
+		expect(partialHtml).toContain('action="/folders/membership"');
+		const partialSlugs = [...partialHtml.matchAll(/href="\/a\/([^"]+)"/g)].map((match) => match[1]);
+		expect(partialSlugs).toEqual(expectedJoined.slice(DEFAULT_LIST_LIMIT, DEFAULT_LIST_LIMIT * 2));
+		expect(partial.headers.get('x-next-cursor')).toBeTruthy();
+
+		const article = await SELF.fetch('http://example.com/a/bulk-149', { headers: { cookie: admin.cookie } });
+		expect(article.status).toBe(200);
+		expect(await article.text()).toContain('Bulk 149');
 	});
 });

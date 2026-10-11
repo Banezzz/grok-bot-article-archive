@@ -1,3 +1,4 @@
+import { bindD1, jsonSqlList, sqlInJsonEach } from './d1';
 import { deleteLibraryForArticle, isValidFolderId, type ArticleFolderRef } from './folders';
 import { resolveThumbnailSource, storeThumbnail } from './thumbnail';
 import { HttpError, isValidSlug, likePattern, randomSuffix, slugifyTitle } from './util';
@@ -71,10 +72,27 @@ export type ListQuery = {
 	starred?: boolean;
 	viewerId?: string;
 	sort?: ArticleSort;
+	cursor?: string;
+	limit?: number;
+};
+
+export type ArticleListPage = {
+	articles: ArticleView[];
+	nextCursor: string | null;
+	limit: number;
 };
 
 export const DEFAULT_ARTICLE_SORT: ArticleSort = 'joined';
 export const SORT_COOKIE = 'archive_sort';
+export const DEFAULT_LIST_LIMIT = 30;
+export const MAX_LIST_LIMIT = 100;
+
+type ListCursor = {
+	s: ArticleSort;
+	t: string;
+	c?: string;
+	i: string;
+};
 
 const JOINED_ALIASES = new Set(['joined', 'created', 'created_at', 'archived', 'archive']);
 const PUBLISHED_ALIASES = new Set(['published', 'article', 'published_at', 'article_time']);
@@ -116,9 +134,83 @@ export function resolveArticleSort(request: Request, url: URL = new URL(request.
 
 function orderByClause(sort: ArticleSort): string {
 	if (sort === 'published') {
-		return 'ORDER BY datetime(COALESCE(articles.published_at, articles.created_at)) DESC, articles.created_at DESC';
+		return 'ORDER BY datetime(COALESCE(articles.published_at, articles.created_at)) DESC, datetime(articles.created_at) DESC, articles.id DESC';
 	}
 	return 'ORDER BY datetime(articles.created_at) DESC, articles.id DESC';
+}
+
+export function parseListLimit(value: string | number | null | undefined): number {
+	const raw = typeof value === 'number' ? value : Number(value ?? '');
+	if (!Number.isFinite(raw) || raw <= 0) {
+		return DEFAULT_LIST_LIMIT;
+	}
+	return Math.min(MAX_LIST_LIMIT, Math.floor(raw));
+}
+
+function bytesToBase64Url(text: string): string {
+	return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlToText(raw: string): string {
+	const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
+	const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
+	return atob(padded + pad);
+}
+
+export function encodeListCursor(article: Pick<ArticleRow, 'id' | 'created_at' | 'published_at'>, sort: ArticleSort): string {
+	const cursor: ListCursor =
+		sort === 'published'
+			? { s: sort, t: article.published_at ?? article.created_at, c: article.created_at, i: article.id }
+			: { s: sort, t: article.created_at, i: article.id };
+	return bytesToBase64Url(JSON.stringify(cursor));
+}
+
+export function decodeListCursor(raw: string, sort: ArticleSort): ListCursor {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(base64UrlToText(raw));
+	} catch {
+		throw new HttpError(400, 'invalid cursor');
+	}
+	if (!parsed || typeof parsed !== 'object') {
+		throw new HttpError(400, 'invalid cursor');
+	}
+	const cursor = parsed as Partial<ListCursor>;
+	if (cursor.s !== sort || typeof cursor.t !== 'string' || !cursor.t || typeof cursor.i !== 'string' || !cursor.i) {
+		throw new HttpError(400, 'invalid cursor');
+	}
+	if (sort === 'published' && (typeof cursor.c !== 'string' || !cursor.c)) {
+		throw new HttpError(400, 'invalid cursor');
+	}
+	return { s: cursor.s, t: cursor.t, c: cursor.c, i: cursor.i };
+}
+
+function keysetAfter(sort: ArticleSort, cursor: ListCursor): { sql: string; binds: string[] } {
+	if (sort === 'published') {
+		const created = cursor.c ?? cursor.t;
+		return {
+			sql: `(
+				datetime(COALESCE(articles.published_at, articles.created_at)) < datetime(?)
+				OR (
+					datetime(COALESCE(articles.published_at, articles.created_at)) = datetime(?)
+					AND datetime(articles.created_at) < datetime(?)
+				)
+				OR (
+					datetime(COALESCE(articles.published_at, articles.created_at)) = datetime(?)
+					AND datetime(articles.created_at) = datetime(?)
+					AND articles.id < ?
+				)
+			)`,
+			binds: [cursor.t, cursor.t, created, cursor.t, created, cursor.i],
+		};
+	}
+	return {
+		sql: `(
+			datetime(articles.created_at) < datetime(?)
+			OR (datetime(articles.created_at) = datetime(?) AND articles.id < ?)
+		)`,
+		binds: [cursor.t, cursor.t, cursor.i],
+	};
 }
 
 const TITLE_MAX = 500;
@@ -259,20 +351,19 @@ export function canReadArticle(
 }
 
 export async function setArticleShared(env: Env, slug: string, shared: boolean): Promise<void> {
-	await env.DB.prepare('UPDATE articles SET shared = ?, updated_at = ? WHERE slug = ?')
-		.bind(shared ? 1 : 0, new Date().toISOString(), slug)
-		.run();
+	await bindD1(env.DB.prepare('UPDATE articles SET shared = ?, updated_at = ? WHERE slug = ?'), shared ? 1 : 0, new Date().toISOString(), slug).run();
 }
 
 export async function getArticleBySlug(env: Env, slug: string): Promise<ArticleRow | null> {
-	return env.DB.prepare(
-		`SELECT articles.*, users.username AS owner_username
-		 FROM articles
-		 LEFT JOIN users ON users.id = articles.owner_id
-		 WHERE articles.slug = ?`,
-	)
-		.bind(slug)
-		.first<ArticleRow>();
+	return bindD1(
+		env.DB.prepare(
+			`SELECT articles.*, users.username AS owner_username
+			 FROM articles
+			 LEFT JOIN users ON users.id = articles.owner_id
+			 WHERE articles.slug = ?`,
+		),
+		slug,
+	).first<ArticleRow>();
 }
 
 export async function getArticleViewBySlug(env: Env, slug: string, viewerId?: string): Promise<ArticleView | null> {
@@ -288,16 +379,16 @@ async function attachTags(env: Env, rows: ArticleRow[]): Promise<ArticleView[]> 
 	if (rows.length === 0) {
 		return [];
 	}
-	const placeholders = rows.map(() => '?').join(', ');
-	const result = await env.DB.prepare(
-		`SELECT article_tags.article_id AS article_id, tags.slug AS slug, tags.name_zh AS name_zh, tags.name_en AS name_en
-		 FROM article_tags
-		 JOIN tags ON tags.id = article_tags.tag_id
-		 WHERE article_tags.article_id IN (${placeholders})
-		 ORDER BY tags.name_zh COLLATE NOCASE`,
-	)
-		.bind(...rows.map((row) => row.id))
-		.all<{ article_id: string; slug: string; name_zh: string; name_en: string | null }>();
+	const result = await bindD1(
+		env.DB.prepare(
+			`SELECT article_tags.article_id AS article_id, tags.slug AS slug, tags.name_zh AS name_zh, tags.name_en AS name_en
+			 FROM article_tags
+			 JOIN tags ON tags.id = article_tags.tag_id
+			 WHERE ${sqlInJsonEach('article_tags.article_id')}
+			 ORDER BY tags.name_zh COLLATE NOCASE`,
+		),
+		jsonSqlList(rows.map((row) => row.id)),
+	).all<{ article_id: string; slug: string; name_zh: string; name_en: string | null }>();
 
 	const byArticle = new Map<string, TagPublic[]>();
 	for (const tag of result.results ?? []) {
@@ -318,21 +409,24 @@ async function attachViewerState(env: Env, rows: ArticleView[], viewerId?: strin
 	if (!viewerId || rows.length === 0) {
 		return rows;
 	}
-	const placeholders = rows.map(() => '?').join(', ');
-	const ids = rows.map((row) => row.id);
+	const idsJson = jsonSqlList(rows.map((row) => row.id));
 	const [stars, memberships] = await Promise.all([
-		env.DB.prepare(`SELECT article_id FROM article_stars WHERE user_id = ? AND article_id IN (${placeholders})`)
-			.bind(viewerId, ...ids)
-			.all<{ article_id: string }>(),
-		env.DB.prepare(
-			`SELECT folder_articles.article_id AS article_id, folders.id AS id, folders.name AS name
-			 FROM folder_articles
-			 JOIN folders ON folders.id = folder_articles.folder_id
-			 WHERE folders.user_id = ? AND folder_articles.article_id IN (${placeholders})
-			 ORDER BY folders.sort_order ASC, folders.name COLLATE NOCASE`,
-		)
-			.bind(viewerId, ...ids)
-			.all<{ article_id: string; id: string; name: string }>(),
+		bindD1(
+			env.DB.prepare(`SELECT article_id FROM article_stars WHERE user_id = ? AND ${sqlInJsonEach('article_id')}`),
+			viewerId,
+			idsJson,
+		).all<{ article_id: string }>(),
+		bindD1(
+			env.DB.prepare(
+				`SELECT folder_articles.article_id AS article_id, folders.id AS id, folders.name AS name
+				 FROM folder_articles
+				 JOIN folders ON folders.id = folder_articles.folder_id
+				 WHERE folders.user_id = ? AND ${sqlInJsonEach('folder_articles.article_id')}
+				 ORDER BY folders.sort_order ASC, folders.name COLLATE NOCASE`,
+			),
+			viewerId,
+			idsJson,
+		).all<{ article_id: string; id: string; name: string }>(),
 	]);
 	const starred = new Set((stars.results ?? []).map((row) => row.article_id));
 	const foldersByArticle = new Map<string, ArticleFolderRef[]>();
@@ -348,10 +442,12 @@ async function attachViewerState(env: Env, rows: ArticleView[], viewerId?: strin
 	}));
 }
 
-export async function listArticles(env: Env, query: ListQuery = {}): Promise<ArticleView[]> {
-	const order = orderByClause(query.sort ?? DEFAULT_ARTICLE_SORT);
+export async function listArticles(env: Env, query: ListQuery = {}): Promise<ArticleListPage> {
+	const sort = query.sort ?? DEFAULT_ARTICLE_SORT;
+	const limit = parseListLimit(query.limit);
+	const order = orderByClause(sort);
 	const clauses: string[] = [];
-	const binds: string[] = [];
+	const binds: Array<string | number> = [];
 	const q = query.q?.trim();
 	if (q) {
 		const pattern = likePattern(q);
@@ -394,31 +490,48 @@ export async function listArticles(env: Env, query: ListQuery = {}): Promise<Art
 
 	const tagSlugs = (query.tags ?? []).filter(Boolean);
 	if (tagSlugs.length > 0) {
-		const tagPlaceholders = tagSlugs.map(() => '?').join(', ');
 		clauses.push(`articles.id IN (
 			SELECT article_tags.article_id
 			FROM article_tags
 			JOIN tags ON tags.id = article_tags.tag_id
-			WHERE tags.slug IN (${tagPlaceholders})
+			WHERE ${sqlInJsonEach('tags.slug')}
 		)`);
-		binds.push(...tagSlugs);
+		binds.push(jsonSqlList(tagSlugs));
+	}
+
+	if (query.cursor?.trim()) {
+		const cursor = decodeListCursor(query.cursor.trim(), sort);
+		const keyset = keysetAfter(sort, cursor);
+		clauses.push(keyset.sql);
+		binds.push(...keyset.binds);
 	}
 
 	const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-	const result = await env.DB.prepare(
-		`SELECT articles.*, users.username AS owner_username
-		 FROM articles
-		 LEFT JOIN users ON users.id = articles.owner_id
-		 ${where} ${order}`,
-	)
-		.bind(...binds)
-		.all<ArticleRow>();
-	return attachViewerState(env, await attachTags(env, result.results ?? []), query.viewerId);
+	const result = await bindD1(
+		env.DB.prepare(
+			`SELECT articles.*, users.username AS owner_username
+			 FROM articles
+			 LEFT JOIN users ON users.id = articles.owner_id
+			 ${where} ${order}
+			 LIMIT ?`,
+		),
+		...binds,
+		limit + 1,
+	).all<ArticleRow>();
+	const rows = result.results ?? [];
+	const hasMore = rows.length > limit;
+	const pageRows = hasMore ? rows.slice(0, limit) : rows;
+	const last = pageRows[pageRows.length - 1];
+	return {
+		articles: await attachViewerState(env, await attachTags(env, pageRows), query.viewerId),
+		nextCursor: hasMore && last ? encodeListCursor(last, sort) : null,
+		limit,
+	};
 }
 
 export async function listTags(env: Env, ownerId?: string): Promise<TagCount[]> {
 	const ownerClause = ownerId ? 'AND articles.owner_id = ?' : '';
-	const result = await env.DB.prepare(
+	const stmt = env.DB.prepare(
 		`SELECT tags.slug AS slug, tags.name_zh AS name_zh, tags.name_en AS name_en,
 		        COUNT(articles.id) AS article_count
 		 FROM tags
@@ -426,9 +539,8 @@ export async function listTags(env: Env, ownerId?: string): Promise<TagCount[]> 
 		 LEFT JOIN articles ON articles.id = article_tags.article_id ${ownerClause}
 		 GROUP BY tags.id
 		 ORDER BY tags.name_zh COLLATE NOCASE`,
-	)
-		.bind(...(ownerId ? [ownerId] : []))
-		.all<TagCount>();
+	);
+	const result = ownerId ? await bindD1(stmt, ownerId).all<TagCount>() : await stmt.all<TagCount>();
 	return result.results ?? [];
 }
 
@@ -447,7 +559,7 @@ async function uniqueGeneratedSlug(env: Env, title: string): Promise<string> {
 async function resolveOrCreateTags(env: Env, slugs: string[]): Promise<TagRow[]> {
 	const rows: TagRow[] = [];
 	for (const slug of slugs) {
-		let tag = await env.DB.prepare('SELECT * FROM tags WHERE slug = ?').bind(slug).first<TagRow>();
+		let tag = await bindD1(env.DB.prepare('SELECT * FROM tags WHERE slug = ?'), slug).first<TagRow>();
 		if (!tag) {
 			const now = new Date().toISOString();
 			tag = {
@@ -457,7 +569,14 @@ async function resolveOrCreateTags(env: Env, slugs: string[]): Promise<TagRow[]>
 				name_en: null,
 				created_at: now,
 			};
-			await env.DB.prepare('INSERT INTO tags (id, slug, name_zh, name_en, created_at) VALUES (?, ?, ?, ?, ?)').bind(tag.id, tag.slug, tag.name_zh, tag.name_en, tag.created_at).run();
+			await bindD1(
+				env.DB.prepare('INSERT INTO tags (id, slug, name_zh, name_en, created_at) VALUES (?, ?, ?, ?, ?)'),
+				tag.id,
+				tag.slug,
+				tag.name_zh,
+				tag.name_en,
+				tag.created_at,
+			).run();
 		}
 		rows.push(tag);
 	}
@@ -465,10 +584,10 @@ async function resolveOrCreateTags(env: Env, slugs: string[]): Promise<TagRow[]>
 }
 
 async function replaceArticleTags(env: Env, articleId: string, slugs: string[]): Promise<void> {
-	await env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?').bind(articleId).run();
+	await bindD1(env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?'), articleId).run();
 	const tags = await resolveOrCreateTags(env, slugs);
 	for (const tag of tags) {
-		await env.DB.prepare('INSERT OR IGNORE INTO article_tags (article_id, tag_id) VALUES (?, ?)').bind(articleId, tag.id).run();
+		await bindD1(env.DB.prepare('INSERT OR IGNORE INTO article_tags (article_id, tag_id) VALUES (?, ?)'), articleId, tag.id).run();
 	}
 }
 
@@ -510,40 +629,39 @@ export async function upsertArticle(env: Env, input: UploadInput, ownerId: strin
 		}
 	}
 
-	await env.DB.prepare(
-		`INSERT INTO articles (
-			id, slug, title, source_url, author, lang, published_at, created_at, updated_at, r2_key, notes, summary_zh, thumbnail_key, owner_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(slug) DO UPDATE SET
-			title = excluded.title,
-			source_url = excluded.source_url,
-			author = excluded.author,
-			lang = excluded.lang,
-			published_at = excluded.published_at,
-			updated_at = excluded.updated_at,
-			r2_key = excluded.r2_key,
-			notes = excluded.notes,
-			summary_zh = excluded.summary_zh,
-			thumbnail_key = excluded.thumbnail_key,
-			owner_id = COALESCE(articles.owner_id, excluded.owner_id)`,
-	)
-		.bind(
-			id,
-			slug,
-			input.title,
-			input.source_url,
-			input.author ?? null,
-			input.lang ?? null,
-			input.published_at ?? null,
-			createdAt,
-			now,
-			r2Key,
-			input.notes ?? null,
-			summaryZh,
-			thumbnailKey,
-			persistedOwnerId,
-		)
-		.run();
+	await bindD1(
+		env.DB.prepare(
+			`INSERT INTO articles (
+				id, slug, title, source_url, author, lang, published_at, created_at, updated_at, r2_key, notes, summary_zh, thumbnail_key, owner_id
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(slug) DO UPDATE SET
+				title = excluded.title,
+				source_url = excluded.source_url,
+				author = excluded.author,
+				lang = excluded.lang,
+				published_at = excluded.published_at,
+				updated_at = excluded.updated_at,
+				r2_key = excluded.r2_key,
+				notes = excluded.notes,
+				summary_zh = excluded.summary_zh,
+				thumbnail_key = excluded.thumbnail_key,
+				owner_id = COALESCE(articles.owner_id, excluded.owner_id)`,
+		),
+		id,
+		slug,
+		input.title,
+		input.source_url,
+		input.author ?? null,
+		input.lang ?? null,
+		input.published_at ?? null,
+		createdAt,
+		now,
+		r2Key,
+		input.notes ?? null,
+		summaryZh,
+		thumbnailKey,
+		persistedOwnerId,
+	).run();
 
 	if (input.tags !== undefined) {
 		await replaceArticleTags(env, id, input.tags);
@@ -561,13 +679,13 @@ export async function deleteArticle(env: Env, slug: string): Promise<boolean> {
 	if (!row) {
 		return false;
 	}
-	await env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?').bind(row.id).run();
+	await bindD1(env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?'), row.id).run();
 	await deleteLibraryForArticle(env, row.id);
 	const keys = [row.r2_key, row.thumbnail_key].filter((key): key is string => Boolean(key));
 	if (keys.length > 0) {
 		await env.ARTICLES.delete(keys);
 	}
-	await env.DB.prepare('DELETE FROM articles WHERE slug = ?').bind(slug).run();
+	await bindD1(env.DB.prepare('DELETE FROM articles WHERE slug = ?'), slug).run();
 	return true;
 }
 

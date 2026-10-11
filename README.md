@@ -31,7 +31,7 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus interface lang/theme). Serve-time injection adds chrome, lightbox, a theme-override stylesheet, and a reader content-language switch under the article title (`?lang=zh\|en\|both`, remembered in `localStorage`) so bilingual articles can show Chinese, English, or both. Older HTML that only marked the English sibling is recovered at serve time; Chinese-only pages never hide content. Stored R2 HTML is unchanged. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
 | `GET /thumb/:slug` | Session, or public when that article is shared | Thumbnail (same visibility as the article page) |
-| `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Shared articles are not listed without a session. |
+| `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Keyset pagination via `cursor` and `limit` (default 30, max 100); response includes `next_cursor`. Shared articles are not listed without a session. |
 | `GET /api/articles/:slug` | Session | One article if visible to that user. Not available anonymously, even when the article is shared. |
 | `GET /api/tags` | Session | Tags with counts over visible articles |
 | `POST /api/upload` | Bearer = that user's upload token | Store HTML; owner is the token's user |

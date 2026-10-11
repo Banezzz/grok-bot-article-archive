@@ -132,6 +132,9 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .list-sort { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px; }
 .list-sort-label { color: var(--muted); font-size: 0.82rem; font-weight: 550; }
 .list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
+.list-more { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 22px 0 0; }
+.list-more .btn { min-width: min(16rem, 100%); min-height: 44px; }
+.list-more-status { margin: 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 .card { display: grid; grid-template-columns: 132px 1fr; gap: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); transition: border-color .15s ease; }
 .card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
 .card-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 12px; }
@@ -410,6 +413,7 @@ export type ListFilters = {
 	folder?: string | null;
 	starred?: boolean;
 	sort?: ArticleSort;
+	cursor?: string;
 };
 
 export function listHref(filters: ListFilters): string {
@@ -432,6 +436,9 @@ export function listHref(filters: ListFilters): string {
 	if (filters.sort) {
 		params.set('sort', filters.sort);
 	}
+	if (filters.cursor) {
+		params.set('cursor', filters.cursor);
+	}
 	const qs = params.toString();
 	return qs ? `/?${qs}` : '/';
 }
@@ -447,6 +454,7 @@ export type ListPageModel = {
 	viewer: SessionUser;
 	mine: boolean;
 	sort: ArticleSort;
+	nextCursor: string | null;
 };
 
 function shareForm(article: ArticleView, nextPath: string, locale: Locale, shared: boolean, variant: 'page' | 'chrome'): string {
@@ -488,6 +496,96 @@ function shareOpenControl(article: ArticleView, locale: Locale, variant: 'page' 
 	return `<button type="button"${cls} data-share-open data-share-slug="${slug}" data-share-title="${title}" aria-label="${aria}" style="appearance:none;border:0;background:transparent;color:#9fe0c4;padding:0;font:inherit;font-size:12px;cursor:pointer;text-align:left">${escapeHtml(label)}</button>`;
 }
 
+const LIST_PAGER_SCRIPT = `<script>
+(function () {
+  var root = document.querySelector('[data-article-list]');
+  if (!root) return;
+  var list = root.querySelector('ul.list');
+  var more = root.querySelector('[data-load-more]');
+  var status = root.querySelector('[data-load-more-status]');
+  var countEl = document.querySelector('[data-list-count]');
+  var loaded = Number(root.getAttribute('data-loaded-count') || '0');
+  var next = root.getAttribute('data-next-cursor') || '';
+  var busy = false;
+
+  function countLabel(n) {
+    var one = root.getAttribute('data-count-one') || String(n);
+    var many = root.getAttribute('data-count-many') || String(n);
+    return n === 1 ? one : many.split('{n}').join(String(n));
+  }
+
+  function setStatus(text, show) {
+    if (!status) return;
+    status.hidden = !show;
+    status.textContent = text || '';
+  }
+
+  function setNext(cursor, href) {
+    next = cursor || '';
+    root.setAttribute('data-next-cursor', next);
+    root.setAttribute('data-loaded-count', String(loaded));
+    if (countEl) countEl.textContent = countLabel(loaded);
+    if (!more) return;
+    if (!next) {
+      more.hidden = true;
+      return;
+    }
+    more.hidden = false;
+    if (href) more.setAttribute('href', href);
+  }
+
+  function load(event) {
+    if (!next || busy) return;
+    if (event) event.preventDefault();
+    busy = true;
+    if (more) more.setAttribute('aria-busy', 'true');
+    setStatus(root.getAttribute('data-loading-label') || '', true);
+    var url = new URL(root.getAttribute('data-partial-url') || '/', location.origin);
+    url.searchParams.set('partial', '1');
+    url.searchParams.set('cursor', next);
+    fetch(url.toString(), { headers: { accept: 'text/html' } })
+      .then(function (response) {
+        if (!response.ok) throw new Error('load failed');
+        return response.text().then(function (html) {
+          return {
+            html: html,
+            cursor: response.headers.get('x-next-cursor') || '',
+            href: response.headers.get('x-next-href') || ''
+          };
+        });
+      })
+      .then(function (page) {
+        var wrap = document.createElement('ul');
+        wrap.innerHTML = page.html || '';
+        var added = wrap.querySelectorAll('li.card').length;
+        if (list && page.html) {
+          list.insertAdjacentHTML('beforeend', page.html);
+        }
+        loaded += added;
+        setNext(page.cursor, page.href);
+        setStatus('', false);
+      })
+      .catch(function () {
+        setStatus(root.getAttribute('data-error-label') || '', true);
+      })
+      .then(function () {
+        busy = false;
+        if (more) more.removeAttribute('aria-busy');
+      });
+  }
+
+  if (more) more.addEventListener('click', load);
+  if (more && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      if (entries.some(function (entry) { return entry.isIntersecting; })) {
+        load();
+      }
+    }, { rootMargin: '320px 0px' });
+    io.observe(more);
+  }
+})();
+</script>`;
+
 function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: string, locale: Locale): string {
 	const starLabel = article.starred ? t(locale, 'unstar') : t(locale, 'star');
 	const picker =
@@ -509,11 +607,62 @@ function articleTools(article: ArticleView, folders: FolderSummary[], nextPath: 
   </div>`;
 }
 
+export function articleListItemsHtml(
+	articles: ArticleView[],
+	folders: FolderSummary[],
+	filters: ListFilters,
+	viewer: SessionUser,
+	locale: Locale,
+): string {
+	const current = listHref({ ...filters, cursor: undefined });
+	const hrefFor = (patch: Partial<ListFilters>) => listHref({ ...filters, cursor: undefined, ...patch });
+	return articles
+		.map((article) => {
+			const source = safeHttpUrl(article.source_url);
+			const when = formatUiDate(article.published_at ?? article.created_at, locale);
+			const thumb = article.thumbnail_key
+				? `<button type="button" class="thumb-zoom" aria-label="${escapeHtml(t(locale, 'lightboxOpen'))}"><img class="thumb" src="/thumb/${encodeURIComponent(article.slug)}" alt="" width="132" height="88"></button>`
+				: `<span class="thumb-fallback" aria-hidden="true"></span>`;
+			const summary = article.summary_zh ? `<p class="summary" lang="zh">${escapeHtml(article.summary_zh)}</p>` : '';
+			const pills =
+				article.tags.length > 0
+					? `<div class="pills">${article.tags
+							.map((tag) => `<a class="pill" href="${escapeHtml(hrefFor({ tag: tag.slug }))}">${escapeHtml(tagLabel(locale, tag))}</a>`)
+							.join('')}</div>`
+					: '';
+			const owner = viewer.role === 'admin' && article.owner_username ? `<span>@${escapeHtml(article.owner_username)}</span>` : '';
+			const folderPills =
+				article.folders.length > 0
+					? `<div class="pills">${article.folders
+							.map((folder) => `<a class="pill" href="${escapeHtml(hrefFor({ folder: folder.id }))}">${escapeHtml(folder.name)}</a>`)
+							.join('')}</div>`
+					: '';
+			return `<li class="card">
+            ${thumb}
+            <div>
+              <h2><a href="/a/${encodeURIComponent(article.slug)}">${escapeHtml(article.title)}</a></h2>
+              ${summary}
+              ${pills}
+              ${folderPills}
+              <div class="meta">
+                ${article.author ? `<span>${escapeHtml(article.author)}</span>` : ''}
+                ${owner}
+                ${when ? `<time datetime="${escapeHtml(article.published_at ?? article.created_at)}">${escapeHtml(when)}</time>` : ''}
+                ${article.lang ? `<span class="badge">${escapeHtml(article.lang)}</span>` : ''}
+                ${isArticleShared(article) ? shareOpenControl(article, locale, 'page', t(locale, 'sharedBadge'), 'badge share-open') : ''}
+                ${source ? `<a href="${escapeHtml(source)}" rel="noreferrer noopener">${escapeHtml(t(locale, 'source'))}</a>` : ''}
+              </div>
+              ${articleTools(article, folders, current, locale)}
+            </div>
+          </li>`;
+		})
+		.join('');
+}
+
 export function listPage(chrome: Chrome, model: ListPageModel): Response {
 	const locale = chrome.locale;
-	const { articles, tags, folders, query, activeTag, activeFolderId, starred, viewer, mine, sort } = model;
+	const { articles, tags, folders, query, activeTag, activeFolderId, starred, viewer, mine, sort, nextCursor } = model;
 	const filters: ListFilters = { q: query, tag: activeTag, mine, folder: activeFolderId, starred, sort };
-	const current = listHref(filters);
 	const hrefFor = (patch: Partial<ListFilters>) => listHref({ ...filters, ...patch });
 
 	const folderChips = `<ul class="chips" aria-label="${escapeHtml(t(locale, 'foldersAria'))}">
@@ -553,49 +702,21 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
 	const cards =
 		articles.length === 0
 			? `<div class="empty">${emptyReason}</div>`
-			: `<ul class="list">${articles
-					.map((article) => {
-						const source = safeHttpUrl(article.source_url);
-						const when = formatUiDate(article.published_at ?? article.created_at, locale);
-						const thumb = article.thumbnail_key
-							? `<button type="button" class="thumb-zoom" aria-label="${escapeHtml(t(locale, 'lightboxOpen'))}"><img class="thumb" src="/thumb/${encodeURIComponent(article.slug)}" alt="" width="132" height="88"></button>`
-							: `<span class="thumb-fallback" aria-hidden="true"></span>`;
-						const summary = article.summary_zh ? `<p class="summary" lang="zh">${escapeHtml(article.summary_zh)}</p>` : '';
-						const pills =
-							article.tags.length > 0
-								? `<div class="pills">${article.tags
-										.map((tag) => `<a class="pill" href="${escapeHtml(hrefFor({ tag: tag.slug }))}">${escapeHtml(tagLabel(locale, tag))}</a>`)
-										.join('')}</div>`
-								: '';
-						const owner = viewer.role === 'admin' && article.owner_username ? `<span>@${escapeHtml(article.owner_username)}</span>` : '';
-						const folderPills =
-							article.folders.length > 0
-								? `<div class="pills">${article.folders
-										.map((folder) => `<a class="pill" href="${escapeHtml(hrefFor({ folder: folder.id }))}">${escapeHtml(folder.name)}</a>`)
-										.join('')}</div>`
-								: '';
-						return `<li class="card">
-            ${thumb}
-            <div>
-              <h2><a href="/a/${encodeURIComponent(article.slug)}">${escapeHtml(article.title)}</a></h2>
-              ${summary}
-              ${pills}
-              ${folderPills}
-              <div class="meta">
-                ${article.author ? `<span>${escapeHtml(article.author)}</span>` : ''}
-                ${owner}
-                ${when ? `<time datetime="${escapeHtml(article.published_at ?? article.created_at)}">${escapeHtml(when)}</time>` : ''}
-                ${article.lang ? `<span class="badge">${escapeHtml(article.lang)}</span>` : ''}
-                ${isArticleShared(article) ? shareOpenControl(article, locale, 'page', t(locale, 'sharedBadge'), 'badge share-open') : ''}
-                ${source ? `<a href="${escapeHtml(source)}" rel="noreferrer noopener">${escapeHtml(t(locale, 'source'))}</a>` : ''}
-              </div>
-              ${articleTools(article, folders, current, locale)}
-            </div>
-          </li>`;
-					})
-					.join('')}</ul>`;
+			: `<ul class="list">${articleListItemsHtml(articles, folders, filters, viewer, locale)}</ul>`;
 
 	const countLabel = articles.length === 1 ? t(locale, 'articleOne') : t(locale, 'articleMany', { n: articles.length });
+	const moreHref = nextCursor ? hrefFor({ cursor: nextCursor }) : '';
+	const pager =
+		articles.length === 0 || !nextCursor
+			? ''
+			: `<div class="list-more">
+      <a class="btn" data-load-more href="${escapeHtml(moreHref)}">${escapeHtml(t(locale, 'loadMore'))}</a>
+      <p class="list-more-status" data-load-more-status hidden></p>
+    </div>`;
+	const listBlock = `<div class="article-list" data-article-list data-next-cursor="${escapeHtml(nextCursor ?? '')}" data-loaded-count="${articles.length}" data-partial-url="${escapeHtml(listHref(filters))}" data-count-one="${escapeHtml(t(locale, 'articleOne'))}" data-count-many="${escapeHtml(t(locale, 'articleMany', { n: '{n}' }))}" data-loading-label="${escapeHtml(t(locale, 'loadingMore'))}" data-error-label="${escapeHtml(t(locale, 'loadMoreError'))}">
+    ${cards}
+    ${pager}
+  </div>`;
 	const activeFolder = folders.find((folder) => folder.id === activeFolderId);
 	const filterNote = [
 		mine ? t(locale, 'yours') : '',
@@ -617,7 +738,7 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
 
 	const body = `
   <main>
-    ${siteHeader(viewer, chrome, t(locale, 'siteTitle'), `${escapeHtml(countLabel)}${filterNote ? ` ${filterNote}` : ''}`, extras)}
+    ${siteHeader(viewer, chrome, t(locale, 'siteTitle'), `<span data-list-count>${escapeHtml(countLabel)}</span>${filterNote ? ` ${filterNote}` : ''}`, extras)}
     <form class="search" method="get" action="/" role="search">
       ${activeTag ? `<input type="hidden" name="tag" value="${escapeHtml(activeTag)}">` : ''}
       ${activeFolderId ? `<input type="hidden" name="folder" value="${escapeHtml(activeFolderId)}">` : ''}
@@ -641,8 +762,9 @@ export function listPage(chrome: Chrome, model: ListPageModel): Response {
     </div>
     ${folderChips}
     ${chips}
-    ${cards}
-  </main>`;
+    ${listBlock}
+  </main>
+  ${LIST_PAGER_SCRIPT}`;
 	return htmlPage(t(locale, 'siteTitle'), body, chrome);
 }
 

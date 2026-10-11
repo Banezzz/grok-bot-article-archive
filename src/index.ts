@@ -4,8 +4,10 @@ import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemePara
 import { createFolder, deleteFolder, isValidFolderId, listFolders, moveFolder, renameFolder, setArticleFolders, toggleArticleStar } from './folders';
 import {
 	adminUsersPage,
+	articleListItemsHtml,
 	foldersPage,
 	injectArchiveChrome,
+	listHref,
 	listPage,
 	loginPage,
 	notFoundPage,
@@ -24,6 +26,7 @@ import {
 	listArticles,
 	listTags,
 	parseArticleSort,
+	parseListLimit,
 	parseTagQuery,
 	parseUploadBody,
 	resolveArticleSort,
@@ -351,7 +354,7 @@ async function handleArticlesCollection(request: Request, env: Env, url: URL, se
 	const tags = parseTagQuery(url);
 	const folderId = parseFolderQuery(url);
 	const starred = url.searchParams.get('starred') === '1';
-	const rows = await listArticles(env, {
+	const page = await listArticles(env, {
 		q: q || undefined,
 		tags: tags.length > 0 ? tags : undefined,
 		ownerId: visibilityOwnerId(session, url),
@@ -359,8 +362,15 @@ async function handleArticlesCollection(request: Request, env: Env, url: URL, se
 		starred: starred || undefined,
 		viewerId: session.id,
 		sort: resolveArticleSort(request, url),
+		cursor: url.searchParams.get('cursor')?.trim() || undefined,
+		limit: parseListLimit(url.searchParams.get('limit')),
 	});
-	return json({ ok: true, articles: rows.map(articlePublic) });
+	return json({
+		ok: true,
+		articles: page.articles.map(articlePublic),
+		next_cursor: page.nextCursor,
+		limit: page.limit,
+	});
 }
 
 async function handleTagsApi(request: Request, env: Env, url: URL, session: SessionUser): Promise<Response> {
@@ -734,7 +744,9 @@ export default {
 				const activeFolderId = parseFolderQuery(url);
 				const requestedSort = parseArticleSort(url.searchParams.get('sort'));
 				const sort = resolveArticleSort(request, url);
-				const [rows, allTags, folders] = await Promise.all([
+				const cursor = url.searchParams.get('cursor')?.trim() || undefined;
+				const limit = parseListLimit(url.searchParams.get('limit'));
+				const [page, allTags, folders] = await Promise.all([
 					listArticles(env, {
 						q: q || undefined,
 						tags: activeTag ? [activeTag] : undefined,
@@ -743,12 +755,33 @@ export default {
 						starred: starred || undefined,
 						viewerId: session!.id,
 						sort,
+						cursor,
+						limit,
 					}),
 					listTags(env, ownerId),
 					listFolders(env, session!.id),
 				]);
+				const filters = {
+					q: q || undefined,
+					tag: activeTag,
+					mine,
+					folder: activeFolderId,
+					starred,
+					sort,
+				};
+				if (url.searchParams.get('partial') === '1') {
+					const html = articleListItemsHtml(page.articles, folders, filters, session!, ui(request).locale);
+					return new Response(html, {
+						headers: {
+							'content-type': 'text/html; charset=utf-8',
+							'cache-control': 'private, no-store',
+							'x-next-cursor': page.nextCursor ?? '',
+							'x-next-href': page.nextCursor ? listHref({ ...filters, cursor: page.nextCursor }) : '',
+						},
+					});
+				}
 				const response = listPage(ui(request), {
-					articles: rows,
+					articles: page.articles,
 					tags: allTags,
 					folders,
 					query: q,
@@ -758,6 +791,7 @@ export default {
 					viewer: session!,
 					mine,
 					sort,
+					nextCursor: page.nextCursor,
 				});
 				if (requestedSort) {
 					response.headers.append('set-cookie', sortCookie(requestedSort, url));
