@@ -153,6 +153,9 @@ const ZH = {
 	lightboxPrev: '上一张',
 	lightboxNext: '下一张',
 	lightboxOpen: '查看大图',
+	loadMore: '加载更多',
+	loadingMore: '正在加载…',
+	loadMoreError: '加载失败，请重试',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -303,6 +306,9 @@ const EN: Record<MessageKey, string> = {
 	lightboxPrev: 'Previous image',
 	lightboxNext: 'Next image',
 	lightboxOpen: 'View larger image',
+	loadMore: 'Load more',
+	loadingMore: 'Loading…',
+	loadMoreError: 'Could not load more. Try again.',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
