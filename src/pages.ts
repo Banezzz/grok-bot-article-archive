@@ -134,6 +134,7 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .list { list-style: none; padding: 0; margin: 0; display: grid; gap: 14px; }
 .list-more { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 22px 0 0; }
 .list-more .btn { min-width: min(16rem, 100%); min-height: 44px; }
+.list-more[hidden], .list-more .btn[hidden], [hidden] { display: none !important; }
 .list-more-status { margin: 0; color: var(--muted); font-size: 0.9rem; text-align: center; }
 .card { display: grid; grid-template-columns: 132px 1fr; gap: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px; box-shadow: var(--shadow); transition: border-color .15s ease; }
 .card:hover { border-color: color-mix(in srgb, var(--accent) 32%, var(--border)); }
@@ -526,17 +527,19 @@ const LIST_PAGER_SCRIPT = `<script>
     root.setAttribute('data-loaded-count', String(loaded));
     if (countEl) countEl.textContent = countLabel(loaded);
     if (!more) return;
+    var wrap = more.closest('.list-more');
     if (!next) {
       more.hidden = true;
+      if (wrap) wrap.hidden = true;
       return;
     }
     more.hidden = false;
+    if (wrap) wrap.hidden = false;
     if (href) more.setAttribute('href', href);
   }
 
-  function load(event) {
+  function load() {
     if (!next || busy) return;
-    if (event) event.preventDefault();
     busy = true;
     if (more) more.setAttribute('aria-busy', 'true');
     setStatus(root.getAttribute('data-loading-label') || '', true);
@@ -574,7 +577,10 @@ const LIST_PAGER_SCRIPT = `<script>
       });
   }
 
-  if (more) more.addEventListener('click', load);
+  if (more) more.addEventListener('click', function (event) {
+    event.preventDefault();
+    load();
+  });
   if (more && 'IntersectionObserver' in window) {
     var io = new IntersectionObserver(function (entries) {
       if (entries.some(function (entry) { return entry.isIntersecting; })) {
