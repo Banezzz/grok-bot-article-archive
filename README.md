@@ -38,7 +38,7 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `POST /api/upload` | Bearer = that user's upload token | Store HTML; owner is the token's user |
 | `DELETE /api/articles/:slug` | Bearer = user token | Delete if owner or admin token |
 
-Sessions last 30 days. The cookie is HMAC-signed with `SITE_ACCESS_SECRET` and contains `{v:2, uid, role, exp, iat, sv}`. `sv` must match the user's `session_version`, so a password change, an admin password reset, or **Sign out everywhere** revokes existing cookies at once (cookies from before migration `0006` count as `sv: 0`). Passwords are PBKDF2-SHA-256 (~100k iterations). Failed sign-ins are throttled in D1: 10 per username and 20 per client IP in a 15-minute window, after which `/login` answers `429` without checking the password. The per-username limit means someone guessing at an account can briefly lock its owner out too; that is the trade-off for stopping distributed guessing. Upload tokens are 32-byte url-safe values; only SHA-256 hashes are stored. The shared env `UPLOAD_TOKEN` is ignored after any user token exists. `SITE_PASSWORD` is no longer used for daily login.
+Sessions last 30 days. The cookie is HMAC-signed with `SITE_ACCESS_SECRET` and contains `{v:2, uid, role, exp, iat, sv}`. `sv` must match the user's `session_version`, so a password change, an admin password reset, or **Sign out everywhere** revokes existing cookies at once (cookies from before migration `0006` count as `sv: 0`). Passwords are PBKDF2-SHA-256 (100k iterations, the most Workers allows). One hash costs roughly 20 ms of CPU, which is over the Free plan's 10 ms per-request budget; sign-in, setup, adding a user, and password changes are the only requests that pay it. If those fail with error 1102 (exceeded CPU), move to the Workers Paid plan, or lower `PBKDF2_ITERATIONS` in `src/password.ts` and accept weaker resistance to offline guessing if the D1 database ever leaks. Failed sign-ins are throttled in D1: 10 per username and 20 per client IP in a 15-minute window, after which `/login` answers `429` without checking the password. The per-username limit means someone guessing at an account can briefly lock its owner out too; that is the trade-off for stopping distributed guessing. Upload tokens are 32-byte url-safe values; only SHA-256 hashes are stored. The shared env `UPLOAD_TOKEN` is ignored after any user token exists. `SITE_PASSWORD` is no longer used for daily login.
 
 Folder and star writes are **session form POSTs**. `POST /api/upload` is unchanged (JSON + bearer token).
 
@@ -94,7 +94,7 @@ curl -sS -X POST http://127.0.0.1:45454/api/upload \
   }'
 ```
 
-Successful uploads return `{ "ok": true, "slug", "url", "tags", "summary_zh", "thumbnail_url", "owner_username" }`. HTML larger than 8MB is rejected. `summary_zh`, `tags`, and thumbnails stay optional.
+Successful uploads return `{ "ok": true, "slug", "url", "tags", "summary_zh", "thumbnail_url", "owner_username" }`, plus `"warnings"` when a thumbnail could not be used (the article is stored anyway). HTML larger than 8MB is rejected. `summary_zh`, `tags`, and thumbnails stay optional.
 
 ## Deploy to Cloudflare (Free plan)
 

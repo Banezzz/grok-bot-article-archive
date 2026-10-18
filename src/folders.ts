@@ -137,17 +137,18 @@ export async function setArticleFolders(env: Env, userId: string, articleId: str
 	const owned = unique.length === 0 ? [] : await listFolders(env, userId);
 	const ownedIds = new Set(owned.map((folder) => folder.id));
 	const nextIds = unique.filter((id) => ownedIds.has(id));
-	await env.DB.prepare(
-		`DELETE FROM folder_articles
-		 WHERE article_id = ?
-		   AND folder_id IN (SELECT id FROM folders WHERE user_id = ?)`,
-	)
-		.bind(articleId, userId)
-		.run();
-	const now = new Date().toISOString();
-	for (const folderId of nextIds) {
-		await env.DB.prepare('INSERT OR IGNORE INTO folder_articles (folder_id, article_id, created_at) VALUES (?, ?, ?)').bind(folderId, articleId, now).run();
-	}
+	// One transaction with a fixed number of statements, however many folders are chosen.
+	await env.DB.batch([
+		env.DB.prepare(
+			`DELETE FROM folder_articles
+			 WHERE article_id = ?
+			   AND folder_id IN (SELECT id FROM folders WHERE user_id = ?)`,
+		).bind(articleId, userId),
+		env.DB.prepare(
+			`INSERT OR IGNORE INTO folder_articles (folder_id, article_id, created_at)
+			 SELECT value, ?, ? FROM json_each(?)`,
+		).bind(articleId, new Date().toISOString(), JSON.stringify(nextIds)),
+	]);
 	return nextIds;
 }
 

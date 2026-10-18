@@ -88,6 +88,6 @@ describe('list dates', () => {
 		const joined = await (await SELF.fetch(`${ORIGIN}/?sort=joined`, { headers: { cookie: `${cookie}; archive_lang=en` } })).text();
 		expect(joined).toContain(`<time datetime="${created}" title="Join time">`);
 		const published = await (await SELF.fetch(`${ORIGIN}/?sort=published`, { headers: { cookie: `${cookie}; archive_lang=en` } })).text();
-		expect(published).toContain('<time datetime="2020-03-04T00:00:00Z" title="Article time">Mar 4, 2020</time>');
+		expect(published).toContain('<time datetime="2020-03-04T00:00:00.000Z" title="Article time">Mar 4, 2020</time>');
 	});
 });

@@ -2,11 +2,10 @@ import {
 	CONTENT_LANG_BOOTSTRAP,
 	CONTENT_LANG_HINT,
 	CONTENT_LANG_SCRIPT,
-	analyzeArticleLanguage,
 	contentLangStyleTag,
 	contentLangSwitch,
 	insertSwitchIntoArticleHtml,
-	markRecoveredLanguagePairs,
+	prepareArticleLanguage,
 	type ContentLang,
 } from './content-lang';
 import { appPagePolicy, articlePagePolicy, scriptHashSources } from './csp';
@@ -1307,6 +1306,33 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 </nav>`;
 }
 
+/**
+ * HTMLRewriter handlers fire only for tags that literally appear, so stored HTML without
+ * <html>, <head> or <body> (a fragment, or the README's minimal sample) would lose the bar,
+ * styles and scripts. Add whichever of the three is missing. Serve-time only; R2 is unchanged.
+ */
+export function ensureDocumentShell(html: string): string {
+	let out = html;
+	if (!/<html[\s>]/i.test(out)) {
+		const doctype = /^\s*<!doctype[^>]*>/i.exec(out);
+		const at = doctype ? doctype[0].length : 0;
+		out = `${out.slice(0, at)}<html>${out.slice(at)}</html>`;
+	}
+	const htmlOpen = /<html\b[^>]*>/i.exec(out);
+	const afterHtml = htmlOpen ? htmlOpen.index + htmlOpen[0].length : 0;
+	if (!/<head[\s>]/i.test(out)) {
+		out = `${out.slice(0, afterHtml)}<head></head>${out.slice(afterHtml)}`;
+	}
+	if (!/<body[\s>]/i.test(out)) {
+		const headClose = /<\/head\s*>/i.exec(out);
+		const start = headClose ? headClose.index + headClose[0].length : afterHtml;
+		const htmlClose = out.toLowerCase().lastIndexOf('</html');
+		const end = htmlClose >= start ? htmlClose : out.length;
+		out = `${out.slice(0, start)}<body>${out.slice(start, end)}</body>${out.slice(end)}`;
+	}
+	return out;
+}
+
 export async function injectArchiveChrome(
 	htmlResponse: Response,
 	article: ArticleView,
@@ -1319,8 +1345,8 @@ export async function injectArchiveChrome(
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
 	const switchMarkup = contentLangSwitch(chrome.locale, articlePath, chrome.contentLang);
 	const sourceHtml = await htmlResponse.text();
-	const analysis = analyzeArticleLanguage(sourceHtml);
-	const prepared = insertSwitchIntoArticleHtml(markRecoveredLanguagePairs(sourceHtml), switchMarkup);
+	const { analysis, html: marked } = prepareArticleLanguage(sourceHtml);
+	const prepared = ensureDocumentShell(insertSwitchIntoArticleHtml(marked, switchMarkup));
 	const headers = new Headers(htmlResponse.headers);
 	headers.set('content-security-policy', articlePagePolicy(inlineScriptHashes()));
 	headers.set('x-frame-options', 'DENY');

@@ -43,8 +43,22 @@ export function safeHttpUrl(value: string): string | null {
 	}
 }
 
+const NEXT_BASE = 'https://archive.invalid';
+
+/**
+ * A same-site path to redirect to after an action. The URL parser drops tabs and newlines
+ * and treats "\\" like "/", so "/\t/evil.example" would otherwise resolve off-site:
+ * reject control characters and confirm the resolved URL stays on this origin.
+ */
 export function safeNextPath(value: string | null): string {
-	if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+	if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) {
+		return '/';
+	}
+	try {
+		if (new URL(value, NEXT_BASE).origin !== NEXT_BASE) {
+			return '/';
+		}
+	} catch {
 		return '/';
 	}
 	return value;

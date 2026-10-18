@@ -1,7 +1,7 @@
 import { clearSessionCookie, createSessionCookie, getSession, resolveUploadActor, toSessionUser, unauthorized } from './auth';
 import { parseContentLangParam } from './content-lang';
 import { DOWNLOAD_POLICY, IMAGE_POLICY } from './csp';
-import { clearLoginFailures, isLoginThrottled, loginThrottleKeys, recordLoginFailure } from './login-throttle';
+import { loginThrottleKeys, recordLoginSuccess, registerLoginAttempt } from './login-throttle';
 import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemeParam, t, themeCookie, translateError } from './i18n';
 import { createFolder, deleteFolder, isValidFolderId, listFolders, moveFolder, renameFolder, setArticleFolders, toggleArticleStar } from './folders';
 import {
@@ -172,16 +172,15 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 	}
 
 	const throttleKeys = loginThrottleKeys(request, username);
-	if (await isLoginThrottled(env, throttleKeys)) {
+	if (await registerLoginAttempt(env, throttleKeys)) {
 		// Refuse without checking the password, so a throttled guess learns nothing.
 		return loginPage(chrome, postedNext, translateError(chrome.locale, 'Too many failed sign-in attempts. Try again in a few minutes.'), false, 429);
 	}
 	const user = await authenticateUser(env, username, password);
 	if (!user) {
-		await recordLoginFailure(env, throttleKeys);
 		return loginPage(chrome, postedNext, translateError(chrome.locale, 'Invalid credentials.'));
 	}
-	await clearLoginFailures(env, username);
+	await recordLoginSuccess(env, throttleKeys);
 	const cookie = await createSessionCookie(env, url, toSessionUser(user));
 	return signedRedirect(url, postedNext, cookie);
 }
@@ -218,9 +217,10 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 	}
 
 	const writer = actor.kind === 'user' ? { ownerId: actor.user.id, isAdmin: actor.user.role === 'admin' } : { ownerId: null, isAdmin: false };
-	const row = await upsertArticle(env, input, writer);
+	const { view: row, warnings } = await upsertArticle(env, input, writer);
 	const publicArticle = articlePublic(row);
 	return json({
+		...(warnings.length > 0 ? { warnings } : {}),
 		ok: true,
 		slug: row.slug,
 		url: publicArticle.url,
@@ -954,6 +954,10 @@ export default {
 			}
 			if (error instanceof SyntaxError) {
 				return jsonError(400, 'Invalid JSON');
+			}
+			// decodeURIComponent on a malformed escape in a path segment (e.g. /a/%E0%A4).
+			if (error instanceof URIError) {
+				return isApiPath(pathname) ? jsonError(404, 'not found') : notFoundPage(ui(request));
 			}
 			console.error('Unhandled worker error', error);
 			return jsonError(500, 'internal error');

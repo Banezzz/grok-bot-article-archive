@@ -28,35 +28,40 @@ function nowSeconds(): number {
 	return Math.floor(Date.now() / 1000);
 }
 
-export async function isLoginThrottled(env: Env, keys: ThrottleKey[]): Promise<boolean> {
+/**
+ * Counts this attempt, then reports whether any key is now over its limit. Counting first,
+ * in one atomic upsert per key, closes the race where parallel requests all read the old
+ * count, pass the check, and each get a password guess.
+ */
+export async function registerLoginAttempt(env: Env, keys: ThrottleKey[]): Promise<boolean> {
 	if (keys.length === 0) {
 		return false;
 	}
-	const result = await env.DB.prepare(`SELECT key, count FROM login_failures WHERE ${sqlInJsonEach('key')} AND window_start > ?`)
-		.bind(jsonSqlList(keys.map((item) => item.key)), nowSeconds() - LOGIN_WINDOW_SECONDS)
-		.all<{ key: string; count: number }>();
-	const counts = new Map((result.results ?? []).map((row) => [row.key, Number(row.count)]));
-	return keys.some((item) => (counts.get(item.key) ?? 0) >= item.limit);
-}
-
-export async function recordLoginFailure(env: Env, keys: ThrottleKey[]): Promise<void> {
 	const now = nowSeconds();
-	const expired = now - LOGIN_WINDOW_SECONDS;
-	await env.DB.batch([
-		env.DB.prepare('DELETE FROM login_failures WHERE window_start <= ?').bind(expired),
+	const results = await env.DB.batch<{ count: number }>([
+		env.DB.prepare('DELETE FROM login_failures WHERE window_start <= ?').bind(now - LOGIN_WINDOW_SECONDS),
 		...keys.map((item) =>
 			env.DB.prepare(
 				`INSERT INTO login_failures (key, count, window_start) VALUES (?, 1, ?)
-				 ON CONFLICT(key) DO UPDATE SET count = count + 1`,
+				 ON CONFLICT(key) DO UPDATE SET count = count + 1
+				 RETURNING count`,
 			).bind(item.key, now),
 		),
 	]);
+	return keys.some((item, index) => Number(results[index + 1]?.results?.[0]?.count ?? 0) > item.limit);
 }
 
-/** Clears only the username counter: a successful sign-in to one's own account must not reset an IP's budget. */
-export async function clearLoginFailures(env: Env, username: string): Promise<void> {
-	const name = username.trim().toLowerCase().slice(0, 64);
-	if (name) {
-		await env.DB.prepare('DELETE FROM login_failures WHERE key = ?').bind(`user:${name}`).run();
+/**
+ * After a successful sign-in: forget the username's failures and give the IP back the
+ * attempt that just succeeded, so signing in to one's own account never spends the budget.
+ */
+export async function recordLoginSuccess(env: Env, keys: ThrottleKey[]): Promise<void> {
+	const statements = keys.map((item) =>
+		item.key.startsWith('user:')
+			? env.DB.prepare('DELETE FROM login_failures WHERE key = ?').bind(item.key)
+			: env.DB.prepare('UPDATE login_failures SET count = MAX(count - 1, 0) WHERE key = ?').bind(item.key),
+	);
+	if (statements.length > 0) {
+		await env.DB.batch(statements);
 	}
 }
