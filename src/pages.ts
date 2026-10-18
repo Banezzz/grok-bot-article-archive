@@ -9,6 +9,7 @@ import {
 	markRecoveredLanguagePairs,
 	type ContentLang,
 } from './content-lang';
+import { appPagePolicy, articlePagePolicy, scriptHashSources } from './csp';
 import type { FolderSummary } from './folders';
 import {
 	formatUiDate,
@@ -168,6 +169,8 @@ button:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
 .empty { border: 1px dashed color-mix(in srgb, var(--border) 80%, var(--muted)); border-radius: 16px; padding: 48px 20px; color: var(--muted); text-align: center; background: color-mix(in srgb, var(--card) 72%, transparent); font-size: 0.98rem; }
 .panel { width: min(440px, calc(100% - 32px)); margin: 12vh auto; background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 32px; box-shadow: var(--shadow); }
 .panel.wide { width: min(920px, 100%); margin: 0 auto; }
+.panel.wide + .panel.wide { margin-top: 16px; }
+.panel h2 { margin: 0 0 6px; font-size: 1.05rem; }
 .panel h1 { margin: 0 0 8px; font-size: 1.4rem; letter-spacing: -0.03em; }
 .panel p { margin: 0 0 16px; color: var(--muted); }
 label { display: block; font-size: 0.82rem; margin-bottom: 6px; color: var(--muted); font-weight: 550; }
@@ -182,6 +185,8 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--bo
 th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 tr:last-child td { border-bottom: 0; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.actions .reset-password { display: inline-flex; gap: 6px; }
+.actions .reset-password input { width: 14ch; margin: 0; }
 .add-user { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 10px; align-items: end; margin: 0 0 20px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
 .add-user input, .add-user select { margin: 0; }
 .not-found { text-align: center; padding: 64px 0; color: var(--muted); }
@@ -235,13 +240,39 @@ ${SHARE_DIALOG_SCRIPT}
 </html>`;
 }
 
+let cachedScriptHashes: string[] | null = null;
+
+/** Hashes of every inline script the archive emits. A script missing here is blocked by CSP. */
+export function inlineScriptHashes(): string[] {
+	cachedScriptHashes ??= scriptHashSources([
+		LANG_BOOTSTRAP,
+		THEME_BOOTSTRAP,
+		FOLDER_PICKER_SCRIPT,
+		LIGHTBOX_SCRIPT,
+		SHARE_DIALOG_SCRIPT,
+		LIST_PAGER_SCRIPT,
+		CONTENT_LANG_BOOTSTRAP,
+		CONTENT_LANG_SCRIPT,
+		CONTENT_LANG_HINT,
+	]);
+	return cachedScriptHashes;
+}
+
+/** Security headers shared by every archive UI response (pages and list fragments). */
+export function setAppSecurityHeaders(headers: Headers): Headers {
+	headers.set('content-security-policy', appPagePolicy(inlineScriptHashes()));
+	headers.set('x-frame-options', 'DENY');
+	headers.set('x-content-type-options', 'nosniff');
+	headers.set('referrer-policy', 'same-origin');
+	return headers;
+}
+
 function htmlPage(title: string, body: string, chrome: Chrome, status = 200, headers?: HeadersInit): Response {
 	const extra = new Headers(headers);
 	extra.set('content-type', 'text/html; charset=utf-8');
 	extra.set('cache-control', 'private, no-store');
 	extra.set('x-robots-tag', 'noindex, nofollow');
-	extra.set('x-content-type-options', 'nosniff');
-	extra.set('referrer-policy', 'same-origin');
+	setAppSecurityHeaders(extra);
 	return new Response(layout(title, body, chrome), { status, headers: extra });
 }
 
@@ -340,7 +371,7 @@ function siteHeader(
   </header>`;
 }
 
-export function loginPage(chrome: Chrome, nextPath: string, error?: string, setupAvailable = false): Response {
+export function loginPage(chrome: Chrome, nextPath: string, error?: string, setupAvailable = false, status = 200): Response {
 	const locale = chrome.locale;
 	const body = `
   <main>
@@ -358,7 +389,7 @@ export function loginPage(chrome: Chrome, nextPath: string, error?: string, setu
       <button type="submit">${escapeHtml(t(locale, 'signIn'))}</button>
     </form>
   </main>`;
-	return htmlPage(t(locale, 'signInTitle'), body, chrome);
+	return htmlPage(t(locale, 'signInTitle'), body, chrome, status);
 }
 
 export function setupPage(chrome: Chrome, error?: string): Response {
@@ -829,13 +860,21 @@ export function foldersPage(chrome: Chrome, viewer: SessionUser, folders: Folder
 	return htmlPage(t(locale, 'foldersTitle'), body, chrome);
 }
 
-export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string | null, issuedToken?: string, error?: string): Response {
+export type SettingsState = {
+	issuedToken?: string;
+	error?: string;
+	notice?: string;
+};
+
+export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string | null, state: SettingsState = {}, headers?: HeadersInit): Response {
 	const locale = chrome.locale;
+	const { issuedToken, error, notice } = state;
 	const body = `
   <main>
     ${siteHeader(viewer, chrome, t(locale, 'settingsHeading'), escapeHtml(t(locale, 'settingsLead')), '', 'settings')}
     <section class="panel wide">
       ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
+      ${notice ? `<div class="notice" role="status">${escapeHtml(notice)}</div>` : ''}
       ${
 				issuedToken
 					? `<div class="notice">${escapeHtml(t(locale, 'copyTokenAgain'))}<code class="token">${escapeHtml(issuedToken)}</code></div>`
@@ -846,8 +885,28 @@ export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string
         <button type="submit">${escapeHtml(t(locale, 'rotateToken'))}</button>
       </form>
     </section>
+    <section class="panel wide">
+      <h2>${escapeHtml(t(locale, 'changePasswordHeading'))}</h2>
+      <p>${escapeHtml(t(locale, 'changePasswordLead'))}</p>
+      <form method="post" action="/settings/password">
+        <label for="current_password">${escapeHtml(t(locale, 'currentPassword'))}</label>
+        <input id="current_password" name="current_password" type="password" autocomplete="current-password" required>
+        <label for="new_password">${escapeHtml(t(locale, 'newPassword'))}</label>
+        <input id="new_password" name="new_password" type="password" autocomplete="new-password" required>
+        <label for="confirm">${escapeHtml(t(locale, 'confirmPassword'))}</label>
+        <input id="confirm" name="confirm" type="password" autocomplete="new-password" required>
+        <button type="submit">${escapeHtml(t(locale, 'changePassword'))}</button>
+      </form>
+    </section>
+    <section class="panel wide">
+      <h2>${escapeHtml(t(locale, 'sessionsHeading'))}</h2>
+      <p>${escapeHtml(t(locale, 'sessionsLead'))}</p>
+      <form method="post" action="/settings/sessions/revoke">
+        <button class="danger" type="submit">${escapeHtml(t(locale, 'signOutEverywhere'))}</button>
+      </form>
+    </section>
   </main>`;
-	return htmlPage(t(locale, 'settingsTitle'), body, chrome);
+	return htmlPage(t(locale, 'settingsTitle'), body, chrome, 200, headers);
 }
 
 export function adminUsersPage(
@@ -856,6 +915,7 @@ export function adminUsersPage(
 	users: UserRow[],
 	issued?: { username: string; token: string },
 	error?: string,
+	notice?: string,
 ): Response {
 	const locale = chrome.locale;
 	const rows = users
@@ -876,6 +936,10 @@ export function adminUsersPage(
           <form method="post" action="/admin/users/${encodeURIComponent(user.id)}/token">
             <button class="ghost" type="submit">${escapeHtml(t(locale, 'rotateTokenShort'))}</button>
           </form>
+          <form class="reset-password" method="post" action="/admin/users/${encodeURIComponent(user.id)}/password">
+            <input name="password" type="password" autocomplete="new-password" required minlength="8" aria-label="${escapeHtml(t(locale, 'newPasswordFor', { user: user.username }))}" placeholder="${escapeHtml(t(locale, 'newPassword'))}">
+            <button class="ghost" type="submit">${escapeHtml(t(locale, 'resetPassword'))}</button>
+          </form>
           <form method="post" action="/admin/users/${encodeURIComponent(user.id)}/delete">
             <button class="danger" type="submit" ${demoteDisabled && user.role === 'admin' ? 'disabled' : ''}>${escapeHtml(t(locale, 'delete'))}</button>
           </form>
@@ -888,6 +952,7 @@ export function adminUsersPage(
   <main>
     ${siteHeader(viewer, chrome, t(locale, 'usersHeading'), escapeHtml(t(locale, 'usersLead')), '', 'users')}
     ${error ? `<div class="error" role="alert">${escapeHtml(error)}</div>` : ''}
+    ${notice ? `<div class="notice" role="status">${escapeHtml(notice)}</div>` : ''}
     ${
 			issued
 				? `<div class="notice">${t(locale, 'tokenForUser', { user: escapeHtml(issued.username) })}<code class="token">${escapeHtml(issued.token)}</code></div>`
@@ -1023,7 +1088,28 @@ export async function injectArchiveChrome(
 	const sourceHtml = await htmlResponse.text();
 	const analysis = analyzeArticleLanguage(sourceHtml);
 	const prepared = insertSwitchIntoArticleHtml(markRecoveredLanguagePairs(sourceHtml), switchMarkup);
+	const headers = new Headers(htmlResponse.headers);
+	headers.set('content-security-policy', articlePagePolicy(inlineScriptHashes()));
+	headers.set('x-frame-options', 'DENY');
+	headers.set('referrer-policy', 'same-origin');
 	return new HTMLRewriter()
+		// Archived forms could otherwise POST to this origin with the reader's cookies
+		// (form-action 'self' allows that). method="dialog" makes them inert; the archive's
+		// own chrome forms are inserted below as raw HTML and never pass through these handlers.
+		.on('form', {
+			element(element) {
+				element.setAttribute('method', 'dialog');
+				element.removeAttribute('action');
+				element.removeAttribute('target');
+			},
+		})
+		.on('[formaction], [formmethod], [formtarget], [formenctype], [form]', {
+			element(element) {
+				for (const name of ['formaction', 'formmethod', 'formtarget', 'formenctype', 'form']) {
+					element.removeAttribute(name);
+				}
+			},
+		})
 		.on('html', {
 			element(element) {
 				if (chrome.theme) {
@@ -1066,5 +1152,5 @@ export async function injectArchiveChrome(
 				});
 			},
 		})
-		.transform(new Response(prepared, { status: htmlResponse.status, headers: htmlResponse.headers }));
+		.transform(new Response(prepared, { status: htmlResponse.status, headers }));
 }

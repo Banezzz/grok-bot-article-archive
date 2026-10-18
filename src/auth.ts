@@ -8,6 +8,8 @@ type SessionPayload = {
 	role: SessionUser['role'];
 	exp: number;
 	iat: number;
+	/** users.session_version at issue time; cookies issued before this field existed count as 0. */
+	sv?: number;
 };
 
 export function bearerToken(request: Request): string {
@@ -59,7 +61,7 @@ export async function createSessionCookie(env: Env, requestUrl: URL, user: Sessi
 		throw new Error('SITE_ACCESS_SECRET is not configured');
 	}
 	const now = Math.floor(Date.now() / 1000);
-	const payload: SessionPayload = { v: 2, uid: user.id, role: user.role, iat: now, exp: now + SESSION_MAX_AGE_SECONDS };
+	const payload: SessionPayload = { v: 2, uid: user.id, role: user.role, iat: now, exp: now + SESSION_MAX_AGE_SECONDS, sv: user.sessionVersion };
 	const body = bytesToBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
 	const signature = bytesToBase64Url(await hmacSign(secret, body));
 	const token = `${body}.${signature}`;
@@ -107,10 +109,10 @@ export async function getSession(request: Request, env: Env): Promise<SessionUse
 			return null;
 		}
 		const user = await getUserById(env, payload.uid);
-		if (!user) {
+		if (!user || (payload.sv ?? 0) !== Number(user.session_version ?? 0)) {
 			return null;
 		}
-		return { id: user.id, username: user.username, role: user.role };
+		return toSessionUser(user);
 	} catch {
 		return null;
 	}
@@ -126,5 +128,5 @@ export function unauthorized(request: Request, loginUrl: string): Response {
 }
 
 export function toSessionUser(user: UserRow): SessionUser {
-	return { id: user.id, username: user.username, role: user.role };
+	return { id: user.id, username: user.username, role: user.role, sessionVersion: Number(user.session_version ?? 0) };
 }

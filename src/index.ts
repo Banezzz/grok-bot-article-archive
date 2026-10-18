@@ -1,6 +1,8 @@
 import { clearSessionCookie, createSessionCookie, getSession, resolveUploadActor, toSessionUser, unauthorized } from './auth';
 import { parseContentLangParam } from './content-lang';
-import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemeParam, themeCookie, translateError } from './i18n';
+import { DOWNLOAD_POLICY, IMAGE_POLICY } from './csp';
+import { clearLoginFailures, isLoginThrottled, loginThrottleKeys, recordLoginFailure } from './login-throttle';
+import { localeCookie, parseLocale, parseLocaleParam, parseTheme, parseThemeParam, t, themeCookie, translateError } from './i18n';
 import { createFolder, deleteFolder, isValidFolderId, listFolders, moveFolder, renameFolder, setArticleFolders, toggleArticleStar } from './folders';
 import {
 	adminUsersPage,
@@ -11,6 +13,7 @@ import {
 	listPage,
 	loginPage,
 	notFoundPage,
+	setAppSecurityHeaders,
 	settingsPage,
 	setupCompletePage,
 	setupPage,
@@ -42,13 +45,16 @@ import {
 	deleteUser,
 	getUserById,
 	listUsers,
+	revokeUserSessions,
 	rotateUploadToken,
+	setUserPassword,
 	setUserRole,
+	verifyUserPassword,
 	type SessionUser,
 	type UserRole,
 } from './users';
 import { getSiteIcon, isSiteIconPath, siteIconResponse } from './icons';
-import { htmlAttachmentDisposition, HttpError, isApiPath, isValidSlug, json, jsonError, MAX_UPLOAD_BYTES, readBodyWithLimit, safeNextPath, withSearchParams } from './util';
+import { htmlAttachmentDisposition, HttpError, isApiPath, isSameOriginRequest, isValidSlug, json, jsonError, MAX_UPLOAD_BYTES, readBodyWithLimit, safeNextPath, withSearchParams } from './util';
 
 function ui(request: Request, overridePath?: string): Chrome {
 	const url = new URL(request.url);
@@ -164,10 +170,17 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 		postedNext = safeNextPath(String(form.get('next') ?? next));
 	}
 
+	const throttleKeys = loginThrottleKeys(request, username);
+	if (await isLoginThrottled(env, throttleKeys)) {
+		// Refuse without checking the password, so a throttled guess learns nothing.
+		return loginPage(chrome, postedNext, translateError(chrome.locale, 'Too many failed sign-in attempts. Try again in a few minutes.'), false, 429);
+	}
 	const user = await authenticateUser(env, username, password);
 	if (!user) {
+		await recordLoginFailure(env, throttleKeys);
 		return loginPage(chrome, postedNext, translateError(chrome.locale, 'Invalid credentials.'));
 	}
+	await clearLoginFailures(env, username);
 	const cookie = await createSessionCookie(env, url, toSessionUser(user));
 	return signedRedirect(url, postedNext, cookie);
 }
@@ -203,8 +216,8 @@ async function handleUpload(request: Request, env: Env): Promise<Response> {
 		return jsonError(413, `html exceeds ${MAX_UPLOAD_BYTES} bytes`);
 	}
 
-	const ownerId = actor.kind === 'user' ? actor.user.id : null;
-	const row = await upsertArticle(env, input, ownerId);
+	const writer = actor.kind === 'user' ? { ownerId: actor.user.id, isAdmin: actor.user.role === 'admin' } : { ownerId: null, isAdmin: false };
+	const row = await upsertArticle(env, input, writer);
 	const publicArticle = articlePublic(row);
 	return json({
 		ok: true,
@@ -476,6 +489,7 @@ async function handleArticleDownload(env: Env, slug: string, session: SessionUse
 		'cache-control': 'private, no-store',
 		'x-robots-tag': 'noindex, nofollow',
 		'x-content-type-options': 'nosniff',
+		'content-security-policy': DOWNLOAD_POLICY,
 	});
 	object.writeHttpMetadata(headers);
 	headers.set('content-type', 'text/html; charset=utf-8');
@@ -535,6 +549,7 @@ async function handleThumbnail(request: Request, env: Env, slug: string, session
 		'cache-control': 'private, max-age=300',
 		'x-robots-tag': 'noindex, nofollow',
 		'x-content-type-options': 'nosniff',
+		'content-security-policy': IMAGE_POLICY,
 	});
 	object.writeHttpMetadata(headers);
 	if (object.httpEtag) {
@@ -558,7 +573,48 @@ async function handleRotateOwnToken(request: Request, env: Env, session: Session
 	}
 	const chrome = ui(request, '/settings');
 	const rotated = await rotateUploadToken(env, session.id);
-	return settingsPage(chrome, session, rotated.user.upload_token_prefix, rotated.uploadToken);
+	return settingsPage(chrome, session, rotated.user.upload_token_prefix, { issuedToken: rotated.uploadToken });
+}
+
+async function handleChangeOwnPassword(request: Request, env: Env, session: SessionUser): Promise<Response> {
+	if (request.method !== 'POST') {
+		return methodNotAllowed('POST');
+	}
+	const chrome = ui(request, '/settings');
+	const form = await request.formData();
+	const current = String(form.get('current_password') ?? '');
+	const next = String(form.get('new_password') ?? '');
+	const confirm = String(form.get('confirm') ?? '');
+	const user = await getUserById(env, session.id);
+	const prefix = user?.upload_token_prefix ?? null;
+	const fail = (message: string) => settingsPage(chrome, session, prefix, { error: translateError(chrome.locale, message) });
+	if (!user || !(await verifyUserPassword(user, current))) {
+		return fail('Current password is incorrect.');
+	}
+	if (next !== confirm) {
+		return fail('Passwords do not match.');
+	}
+	try {
+		const updated = await setUserPassword(env, session.id, next);
+		// The bump signed out every session, this one included; re-issue a cookie for this device.
+		const url = new URL(request.url);
+		const cookie = await createSessionCookie(env, url, toSessionUser(updated));
+		return settingsPage(chrome, toSessionUser(updated), prefix, { notice: t(chrome.locale, 'passwordChanged') }, { 'set-cookie': cookie });
+	} catch (error) {
+		if (error instanceof HttpError) {
+			return fail(error.message);
+		}
+		throw error;
+	}
+}
+
+async function handleRevokeOwnSessions(request: Request, env: Env, session: SessionUser): Promise<Response> {
+	if (request.method !== 'POST') {
+		return methodNotAllowed('POST');
+	}
+	await revokeUserSessions(env, session.id);
+	const url = new URL(request.url);
+	return signedRedirect(url, '/login', clearSessionCookie(url));
 }
 
 async function handleAdminUsers(request: Request, env: Env, session: SessionUser): Promise<Response> {
@@ -614,6 +670,19 @@ async function handleAdminUserAction(request: Request, env: Env, session: Sessio
 			const rotated = await rotateUploadToken(env, userId);
 			return adminUsersPage(chrome, session, await listUsers(env), { username: rotated.user.username, token: rotated.uploadToken });
 		}
+		if (action === 'password') {
+			const form = await request.formData();
+			const updated = await setUserPassword(env, userId, String(form.get('password') ?? ''));
+			const notice = t(chrome.locale, 'passwordResetFor', { user: updated.username });
+			if (userId === session.id) {
+				const url = new URL(request.url);
+				const cookie = await createSessionCookie(env, url, toSessionUser(updated));
+				const page = adminUsersPage(chrome, toSessionUser(updated), await listUsers(env), undefined, undefined, notice);
+				page.headers.append('set-cookie', cookie);
+				return page;
+			}
+			return adminUsersPage(chrome, session, await listUsers(env), undefined, undefined, notice);
+		}
 		return notFoundPage(chrome);
 	} catch (error) {
 		if (error instanceof HttpError) {
@@ -642,6 +711,8 @@ function isPublicPath(pathname: string, method: string): boolean {
 	return false;
 }
 
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 function isWriteApi(pathname: string, method: string): boolean {
 	if (pathname === '/api/upload' && method === 'POST') {
 		return true;
@@ -667,6 +738,11 @@ export default {
 					return methodNotAllowed('GET, HEAD');
 				}
 				return siteIconResponse(siteIcon);
+			}
+			// Cookie-authenticated writes must come from this site's own pages. Bearer-token
+			// APIs carry no ambient credentials and are exempt (bots send no Origin).
+			if (!SAFE_METHODS.has(request.method) && !isWriteApi(pathname, request.method) && !isSameOriginRequest(request, url)) {
+				return new Response('Forbidden', { status: 403, headers: { 'cache-control': 'private, no-store' } });
 			}
 			if (pathname === '/setup') {
 				return await handleSetup(request, env);
@@ -772,12 +848,14 @@ export default {
 				if (url.searchParams.get('partial') === '1') {
 					const html = articleListItemsHtml(page.articles, folders, filters, session!, ui(request).locale);
 					return new Response(html, {
-						headers: {
-							'content-type': 'text/html; charset=utf-8',
-							'cache-control': 'private, no-store',
-							'x-next-cursor': page.nextCursor ?? '',
-							'x-next-href': page.nextCursor ? listHref({ ...filters, cursor: page.nextCursor }) : '',
-						},
+						headers: setAppSecurityHeaders(
+							new Headers({
+								'content-type': 'text/html; charset=utf-8',
+								'cache-control': 'private, no-store',
+								'x-next-cursor': page.nextCursor ?? '',
+								'x-next-href': page.nextCursor ? listHref({ ...filters, cursor: page.nextCursor }) : '',
+							}),
+						),
 					});
 				}
 				const response = listPage(ui(request), {
@@ -822,13 +900,19 @@ export default {
 			if (pathname === '/settings/token') {
 				return await handleRotateOwnToken(request, env, session!);
 			}
+			if (pathname === '/settings/password') {
+				return await handleChangeOwnPassword(request, env, session!);
+			}
+			if (pathname === '/settings/sessions/revoke') {
+				return await handleRevokeOwnSessions(request, env, session!);
+			}
 			if (pathname === '/admin/users') {
 				if (!session || session.role !== 'admin') {
 					return forbiddenPage(ui(request));
 				}
 				return await handleAdminUsers(request, env, session);
 			}
-			const adminAction = /^\/admin\/users\/([^/]+)\/(delete|role|token)$/.exec(pathname);
+			const adminAction = /^\/admin\/users\/([^/]+)\/(delete|role|token|password)$/.exec(pathname);
 			if (adminAction?.[1] && adminAction[2]) {
 				if (!session || session.role !== 'admin') {
 					return forbiddenPage(ui(request));

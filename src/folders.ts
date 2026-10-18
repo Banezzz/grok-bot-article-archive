@@ -161,13 +161,17 @@ export async function toggleArticleStar(env: Env, userId: string, articleId: str
 	return true;
 }
 
-export async function deleteLibraryForArticle(env: Env, articleId: string): Promise<void> {
-	await env.DB.prepare('DELETE FROM folder_articles WHERE article_id = ?').bind(articleId).run();
-	await env.DB.prepare('DELETE FROM article_stars WHERE article_id = ?').bind(articleId).run();
+export function libraryCleanupForArticle(env: Env, articleId: string): D1PreparedStatement[] {
+	return [
+		env.DB.prepare('DELETE FROM folder_articles WHERE article_id = ?').bind(articleId),
+		env.DB.prepare('DELETE FROM article_stars WHERE article_id = ?').bind(articleId),
+	];
 }
 
-export async function deleteLibraryForUser(env: Env, userId: string): Promise<void> {
-	await env.DB.prepare('DELETE FROM article_stars WHERE user_id = ?').bind(userId).run();
-	await env.DB.prepare('DELETE FROM folder_articles WHERE folder_id IN (SELECT id FROM folders WHERE user_id = ?)').bind(userId).run();
-	await env.DB.prepare('DELETE FROM folders WHERE user_id = ?').bind(userId).run();
+export function libraryCleanupForUser(env: Env, userId: string): D1PreparedStatement[] {
+	return [
+		env.DB.prepare('DELETE FROM article_stars WHERE user_id = ?').bind(userId),
+		env.DB.prepare('DELETE FROM folder_articles WHERE folder_id IN (SELECT id FROM folders WHERE user_id = ?)').bind(userId),
+		env.DB.prepare('DELETE FROM folders WHERE user_id = ?').bind(userId),
+	];
 }

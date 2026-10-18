@@ -69,6 +69,23 @@ export function likePattern(query: string): string {
 	return `%${query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
 }
 
+/**
+ * True unless the browser says this request came from another site. Browsers send
+ * Origin on every POST; Sec-Fetch-Site covers the rare cases without it. Requests with
+ * neither come from non-browser clients, which cannot carry a victim's cookies.
+ */
+export function isSameOriginRequest(request: Request, url: URL): boolean {
+	const origin = request.headers.get('origin');
+	if (origin !== null) {
+		return origin === url.origin;
+	}
+	const site = request.headers.get('sec-fetch-site');
+	if (site !== null) {
+		return site === 'same-origin' || site === 'none';
+	}
+	return true;
+}
+
 export function isApiPath(pathname: string): boolean {
 	return pathname === '/health' || pathname.startsWith('/api/');
 }

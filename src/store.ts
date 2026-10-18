@@ -1,7 +1,7 @@
 import { bindD1, jsonSqlList, sqlInJsonEach } from './d1';
-import { deleteLibraryForArticle, isValidFolderId, type ArticleFolderRef } from './folders';
+import { isValidFolderId, libraryCleanupForArticle, type ArticleFolderRef } from './folders';
 import { resolveThumbnailSource, storeThumbnail } from './thumbnail';
-import { HttpError, isValidSlug, likePattern, randomSuffix, slugifyTitle } from './util';
+import { HttpError, isValidSlug, likePattern, MAX_UPLOAD_BYTES, randomSuffix, slugifyTitle } from './util';
 
 export type ArticleRow = {
 	id: string;
@@ -304,7 +304,8 @@ export function parseUploadBody(data: unknown): UploadInput {
 		summary_zh: optionalString(body.summary_zh, 'summary_zh', SUMMARY_MAX),
 		tags: parseTagSlugs(body.tags),
 		thumbnail_url: optionalString(body.thumbnail_url, 'thumbnail_url', URL_MAX),
-		thumbnail_base64: optionalString(body.thumbnail_base64, 'thumbnail_base64', 4 * 1024 * 1024),
+		// Bounded in practice by the request body cap; the decoded image is checked against MAX_THUMB_BYTES.
+		thumbnail_base64: optionalString(body.thumbnail_base64, 'thumbnail_base64', MAX_UPLOAD_BYTES),
 	};
 }
 
@@ -544,109 +545,38 @@ export async function listTags(env: Env, ownerId?: string): Promise<TagCount[]> 
 	return result.results ?? [];
 }
 
-async function uniqueGeneratedSlug(env: Env, title: string): Promise<string> {
-	const base = slugifyTitle(title);
-	for (let attempt = 0; attempt < 6; attempt++) {
-		const candidate = attempt === 0 ? base : `${base}-${randomSuffix()}`;
-		const existing = await getArticleBySlug(env, candidate);
-		if (!existing) {
-			return candidate;
-		}
-	}
-	throw new HttpError(409, 'Could not allocate a unique slug');
+/** Who is writing: a user's upload token, or the legacy shared token (no owner). */
+export type ArticleWriter = {
+	ownerId: string | null;
+	isAdmin: boolean;
+};
+
+/** An existing slug may only be replaced by its owner or an admin. Ownerless rows stay with ownerless writers. */
+export function canOverwriteArticle(writer: ArticleWriter, existing: { owner_id: string | null }): boolean {
+	return writer.isAdmin || existing.owner_id === writer.ownerId;
 }
 
-async function resolveOrCreateTags(env: Env, slugs: string[]): Promise<TagRow[]> {
-	const rows: TagRow[] = [];
-	for (const slug of slugs) {
-		let tag = await bindD1(env.DB.prepare('SELECT * FROM tags WHERE slug = ?'), slug).first<TagRow>();
-		if (!tag) {
-			const now = new Date().toISOString();
-			tag = {
-				id: crypto.randomUUID(),
-				slug,
-				name_zh: slug,
-				name_en: null,
-				created_at: now,
-			};
-			await bindD1(
-				env.DB.prepare('INSERT INTO tags (id, slug, name_zh, name_en, created_at) VALUES (?, ?, ?, ?, ?)'),
-				tag.id,
-				tag.slug,
-				tag.name_zh,
-				tag.name_en,
-				tag.created_at,
-			).run();
-		}
-		rows.push(tag);
-	}
-	return rows;
-}
+const GENERATED_SLUG_ATTEMPTS = 6;
+const SLUG_TAKEN_MESSAGE = 'That slug is already used by another article.';
 
-async function replaceArticleTags(env: Env, articleId: string, slugs: string[]): Promise<void> {
-	await bindD1(env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?'), articleId).run();
-	const tags = await resolveOrCreateTags(env, slugs);
-	for (const tag of tags) {
-		await bindD1(env.DB.prepare('INSERT OR IGNORE INTO article_tags (article_id, tag_id) VALUES (?, ?)'), articleId, tag.id).run();
-	}
-}
-
-export async function upsertArticle(env: Env, input: UploadInput, ownerId: string | null): Promise<ArticleView> {
-	const providedSlug = input.slug;
-	const slug = providedSlug ?? (await uniqueGeneratedSlug(env, input.title));
-	const existing = providedSlug ? await getArticleBySlug(env, providedSlug) : null;
-	const now = new Date().toISOString();
-	const id = existing?.id ?? crypto.randomUUID();
-	const createdAt = existing?.created_at ?? now;
-	const persistedOwnerId = existing?.owner_id ?? ownerId;
-	const r2Key = `articles/${slug}.html`;
-	const summaryZh = input.summary_zh !== undefined ? input.summary_zh : (existing?.summary_zh ?? null);
-
-	await env.ARTICLES.put(r2Key, input.html, {
-		httpMetadata: {
-			contentType: 'text/html; charset=utf-8',
-		},
-		customMetadata: {
-			slug,
-			title: input.title,
-		},
-	});
-
-	let thumbnailKey = existing?.thumbnail_key ?? null;
-	const shouldResolveThumb = Boolean(input.thumbnail_url || input.thumbnail_base64 || !thumbnailKey);
-	if (shouldResolveThumb) {
-		const image = await resolveThumbnailSource({
-			thumbnail_url: input.thumbnail_url,
-			thumbnail_base64: input.thumbnail_base64,
-			html: input.html,
-			source_url: input.source_url,
-		});
-		if (image) {
-			const stored = await storeThumbnail(env, slug, image, thumbnailKey);
-			thumbnailKey = stored.key;
-		} else if (input.thumbnail_url || input.thumbnail_base64) {
-			thumbnailKey = null;
-		}
-	}
-
-	await bindD1(
-		env.DB.prepare(
-			`INSERT INTO articles (
-				id, slug, title, source_url, author, lang, published_at, created_at, updated_at, r2_key, notes, summary_zh, thumbnail_key, owner_id
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(slug) DO UPDATE SET
-				title = excluded.title,
-				source_url = excluded.source_url,
-				author = excluded.author,
-				lang = excluded.lang,
-				published_at = excluded.published_at,
-				updated_at = excluded.updated_at,
-				r2_key = excluded.r2_key,
-				notes = excluded.notes,
-				summary_zh = excluded.summary_zh,
-				thumbnail_key = excluded.thumbnail_key,
-				owner_id = COALESCE(articles.owner_id, excluded.owner_id)`,
-		),
+function articleUpsertStatement(
+	env: Env,
+	values: {
+		id: string;
+		slug: string;
+		input: UploadInput;
+		createdAt: string;
+		now: string;
+		r2Key: string;
+		summaryZh: string | null;
+		thumbnailKey: string | null;
+		ownerId: string | null;
+	},
+	writer: ArticleWriter,
+	mode: 'insert-only' | 'upsert',
+): D1PreparedStatement {
+	const { id, slug, input, createdAt, now, r2Key, summaryZh, thumbnailKey, ownerId } = values;
+	const columns = [
 		id,
 		slug,
 		input.title,
@@ -660,18 +590,183 @@ export async function upsertArticle(env: Env, input: UploadInput, ownerId: strin
 		input.notes ?? null,
 		summaryZh,
 		thumbnailKey,
-		persistedOwnerId,
-	).run();
+		ownerId,
+	];
+	const insert = `INSERT INTO articles (
+		id, slug, title, source_url, author, lang, published_at, created_at, updated_at, r2_key, notes, summary_zh, thumbnail_key, owner_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+	if (mode === 'insert-only') {
+		return bindD1(env.DB.prepare(`${insert} ON CONFLICT(slug) DO NOTHING`), ...columns);
+	}
+	// The WHERE re-checks ownership inside the write, so a slug claimed by someone
+	// else between our read and this statement is left untouched (changes = 0).
+	return bindD1(
+		env.DB.prepare(
+			`${insert}
+			ON CONFLICT(slug) DO UPDATE SET
+				title = excluded.title,
+				source_url = excluded.source_url,
+				author = excluded.author,
+				lang = excluded.lang,
+				published_at = excluded.published_at,
+				updated_at = excluded.updated_at,
+				r2_key = excluded.r2_key,
+				notes = excluded.notes,
+				summary_zh = excluded.summary_zh,
+				thumbnail_key = excluded.thumbnail_key,
+				owner_id = COALESCE(articles.owner_id, excluded.owner_id)
+			WHERE articles.owner_id IS ? OR ? = 1`,
+		),
+		...columns,
+		writer.ownerId,
+		writer.isAdmin ? 1 : 0,
+	);
+}
 
-	if (input.tags !== undefined) {
-		await replaceArticleTags(env, id, input.tags);
+/**
+ * Tag writes are keyed by (slug, r2_key). The r2_key is unique to this attempt, so
+ * they only apply if the article statement in the same batch actually committed.
+ */
+function tagStatements(env: Env, slug: string, r2Key: string, tagSlugs: string[], now: string): D1PreparedStatement[] {
+	const newTags = tagSlugs.map((tagSlug) => [crypto.randomUUID(), tagSlug]);
+	return [
+		bindD1(
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO tags (id, slug, name_zh, name_en, created_at)
+				 SELECT json_extract(value, '$[0]'), json_extract(value, '$[1]'), json_extract(value, '$[1]'), NULL, ?
+				 FROM json_each(?)`,
+			),
+			now,
+			JSON.stringify(newTags),
+		),
+		bindD1(
+			env.DB.prepare('DELETE FROM article_tags WHERE article_id IN (SELECT id FROM articles WHERE slug = ? AND r2_key = ?)'),
+			slug,
+			r2Key,
+		),
+		bindD1(
+			env.DB.prepare(
+				`INSERT OR IGNORE INTO article_tags (article_id, tag_id)
+				 SELECT articles.id, tags.id
+				 FROM articles
+				 JOIN tags ON ${sqlInJsonEach('tags.slug')}
+				 WHERE articles.slug = ? AND articles.r2_key = ?`,
+			),
+			jsonSqlList(tagSlugs),
+			slug,
+			r2Key,
+		),
+	];
+}
+
+function generatedSlugCandidate(title: string, attempt: number): string {
+	const base = slugifyTitle(title);
+	return attempt === 0 ? base : `${base}-${randomSuffix()}`;
+}
+
+async function deleteObjects(env: Env, keys: Array<string | null | undefined>): Promise<void> {
+	const unique = [...new Set(keys.filter((key): key is string => Boolean(key)))];
+	if (unique.length > 0) {
+		await env.ARTICLES.delete(unique);
+	}
+}
+
+/**
+ * Stores the HTML (and thumbnail) under fresh R2 keys, then switches the D1 row and its
+ * tags over in one batch. Old objects are removed only after that batch commits; a
+ * rejected write removes only the objects it created.
+ */
+export async function upsertArticle(env: Env, input: UploadInput, writer: ArticleWriter): Promise<ArticleView> {
+	const providedSlug = input.slug;
+	const existing = providedSlug ? await getArticleBySlug(env, providedSlug) : null;
+	if (existing && !canOverwriteArticle(writer, existing)) {
+		throw new HttpError(409, SLUG_TAKEN_MESSAGE);
 	}
 
-	const view = await getArticleViewBySlug(env, slug);
-	if (!view) {
-		throw new HttpError(500, 'Failed to persist article metadata');
+	const shouldResolveThumb = Boolean(input.thumbnail_url || input.thumbnail_base64 || !existing?.thumbnail_key);
+	const image = shouldResolveThumb
+		? await resolveThumbnailSource({
+				thumbnail_url: input.thumbnail_url,
+				thumbnail_base64: input.thumbnail_base64,
+				html: input.html,
+				source_url: input.source_url,
+			})
+		: null;
+
+	const now = new Date().toISOString();
+	const attempts = providedSlug ? 1 : GENERATED_SLUG_ATTEMPTS;
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		const slug = providedSlug ?? generatedSlugCandidate(input.title, attempt);
+		if (!providedSlug && (await getArticleBySlug(env, slug))) {
+			continue;
+		}
+
+		const r2Key = `articles/${slug}/${randomSuffix(8)}.html`;
+		let thumbnailKey = existing?.thumbnail_key ?? null;
+		let createdThumbKey: string | null = null;
+		let committed = false;
+		try {
+			await env.ARTICLES.put(r2Key, input.html, {
+				httpMetadata: {
+					contentType: 'text/html; charset=utf-8',
+				},
+				customMetadata: {
+					slug,
+					title: input.title,
+				},
+			});
+			if (image) {
+				createdThumbKey = (await storeThumbnail(env, slug, image)).key;
+				thumbnailKey = createdThumbKey;
+			} else if (input.thumbnail_url || input.thumbnail_base64) {
+				thumbnailKey = null;
+			}
+
+			const statements = [
+				articleUpsertStatement(
+					env,
+					{
+						id: existing?.id ?? crypto.randomUUID(),
+						slug,
+						input,
+						createdAt: existing?.created_at ?? now,
+						now,
+						r2Key,
+						summaryZh: input.summary_zh !== undefined ? input.summary_zh : (existing?.summary_zh ?? null),
+						thumbnailKey,
+						ownerId: existing?.owner_id ?? writer.ownerId,
+					},
+					writer,
+					providedSlug ? 'upsert' : 'insert-only',
+				),
+			];
+			if (input.tags !== undefined) {
+				statements.push(...tagStatements(env, slug, r2Key, input.tags, now));
+			}
+			const [articleResult] = await env.DB.batch(statements);
+			committed = (articleResult?.meta.changes ?? 0) > 0;
+		} catch (error) {
+			await deleteObjects(env, [r2Key, createdThumbKey]);
+			throw error;
+		}
+		if (!committed) {
+			await deleteObjects(env, [r2Key, createdThumbKey]);
+			if (providedSlug) {
+				throw new HttpError(409, SLUG_TAKEN_MESSAGE);
+			}
+			continue;
+		}
+
+		const staleThumb = existing?.thumbnail_key && existing.thumbnail_key !== thumbnailKey ? existing.thumbnail_key : null;
+		await deleteObjects(env, [existing?.r2_key !== r2Key ? existing?.r2_key : null, staleThumb]);
+
+		const view = await getArticleViewBySlug(env, slug);
+		if (!view) {
+			throw new HttpError(500, 'Failed to persist article metadata');
+		}
+		return view;
 	}
-	return view;
+	throw new HttpError(409, 'Could not allocate a unique slug');
 }
 
 export async function deleteArticle(env: Env, slug: string): Promise<boolean> {
@@ -679,13 +774,14 @@ export async function deleteArticle(env: Env, slug: string): Promise<boolean> {
 	if (!row) {
 		return false;
 	}
-	await bindD1(env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?'), row.id).run();
-	await deleteLibraryForArticle(env, row.id);
-	const keys = [row.r2_key, row.thumbnail_key].filter((key): key is string => Boolean(key));
-	if (keys.length > 0) {
-		await env.ARTICLES.delete(keys);
-	}
-	await bindD1(env.DB.prepare('DELETE FROM articles WHERE slug = ?'), slug).run();
+	// Drop every D1 reference in one transaction first; a failure there leaves the
+	// article fully intact instead of pointing at deleted R2 objects.
+	await env.DB.batch([
+		bindD1(env.DB.prepare('DELETE FROM article_tags WHERE article_id = ?'), row.id),
+		...libraryCleanupForArticle(env, row.id),
+		bindD1(env.DB.prepare('DELETE FROM articles WHERE id = ?'), row.id),
+	]);
+	await deleteObjects(env, [row.r2_key, row.thumbnail_key]);
 	return true;
 }
 

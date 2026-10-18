@@ -1,6 +1,6 @@
-import { HttpError, safeHttpUrl } from './util';
+import { HttpError, randomSuffix, safeHttpUrl } from './util';
 
-export const MAX_THUMB_BYTES = 2 * 1024 * 1024;
+export const MAX_THUMB_BYTES = 20 * 1024 * 1024;
 
 const MIME_EXT: Record<string, string> = {
 	'image/jpeg': 'jpg',
@@ -86,6 +86,44 @@ function resolveImgSrc(src: string, sourceUrl: string): string | null {
 	}
 }
 
+/** Reads at most `maxBytes`, aborting the download as soon as it grows past the cap. */
+export async function readBodyUpTo(response: Response, maxBytes: number): Promise<Uint8Array | null> {
+	const declared = Number(response.headers.get('content-length') ?? '');
+	if (Number.isFinite(declared) && declared > maxBytes) {
+		await response.body?.cancel();
+		return null;
+	}
+	if (!response.body) {
+		return new Uint8Array(0);
+	}
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			total += value.byteLength;
+			if (total > maxBytes) {
+				await reader.cancel();
+				return null;
+			}
+			chunks.push(value);
+		}
+	} catch {
+		return null;
+	}
+	const out = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		out.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return out;
+}
+
 async function bytesFromRemoteUrl(url: string): Promise<{ contentType: string; bytes: Uint8Array } | null> {
 	let response: Response;
 	try {
@@ -98,14 +136,14 @@ async function bytesFromRemoteUrl(url: string): Promise<{ contentType: string; b
 		return null;
 	}
 	if (!response.ok) {
+		await response.body?.cancel();
 		return null;
 	}
 	const hinted = response.headers.get('content-type')?.split(';', 1)[0] ?? null;
-	const buffer = await response.arrayBuffer();
-	if (buffer.byteLength === 0 || buffer.byteLength > MAX_THUMB_BYTES) {
+	const bytes = await readBodyUpTo(response, MAX_THUMB_BYTES);
+	if (!bytes || bytes.byteLength === 0) {
 		return null;
 	}
-	const bytes = new Uint8Array(buffer);
 	const contentType = sniffContentType(bytes, hinted);
 	if (!MIME_EXT[contentType]) {
 		return null;
@@ -164,15 +202,17 @@ export async function resolveThumbnailSource(input: { thumbnail_url?: string; th
 	return bytesFromRemoteUrl(resolved);
 }
 
-export async function storeThumbnail(env: Env, slug: string, image: { contentType: string; bytes: Uint8Array }, previousKey?: string | null): Promise<StoredThumbnail> {
+/**
+ * Writes the thumbnail under a fresh key so a rejected or concurrent upload never
+ * clobbers the image the committed row points at. The caller deletes the old key
+ * once the D1 row has switched over.
+ */
+export async function storeThumbnail(env: Env, slug: string, image: { contentType: string; bytes: Uint8Array }): Promise<StoredThumbnail> {
 	const ext = extensionFor(image.contentType);
-	const key = `thumbs/${slug}.${ext}`;
+	const key = `thumbs/${slug}/${randomSuffix(8)}.${ext}`;
 	await env.ARTICLES.put(key, image.bytes, {
 		httpMetadata: { contentType: image.contentType },
 		customMetadata: { slug },
 	});
-	if (previousKey && previousKey !== key) {
-		await env.ARTICLES.delete(previousKey);
-	}
 	return { key, contentType: image.contentType };
 }

@@ -1,4 +1,4 @@
-import { deleteLibraryForUser } from './folders';
+import { libraryCleanupForUser } from './folders';
 import { hashPassword, verifyPassword } from './password';
 import { generateUploadToken, hashUploadToken, tokensMatch } from './tokens';
 import { HttpError } from './util';
@@ -12,6 +12,7 @@ export type UserRow = {
 	role: UserRole;
 	upload_token_hash: string | null;
 	upload_token_prefix: string | null;
+	session_version: number;
 	created_at: string;
 	updated_at: string;
 };
@@ -20,6 +21,7 @@ export type SessionUser = {
 	id: string;
 	username: string;
 	role: UserRole;
+	sessionVersion: number;
 };
 
 export type CreatedUser = {
@@ -101,6 +103,7 @@ export async function createUser(env: Env, input: { username: string; password: 
 		role: input.role,
 		upload_token_hash: await hashUploadToken(token),
 		upload_token_prefix: prefix,
+		session_version: 0,
 		created_at: now,
 		updated_at: now,
 	};
@@ -144,6 +147,10 @@ export async function authenticateUser(env: Env, username: string, password: str
 	return user;
 }
 
+export async function verifyUserPassword(user: UserRow, password: string): Promise<boolean> {
+	return verifyPassword(password, user.password_hash);
+}
+
 export async function findUserByUploadToken(env: Env, token: string): Promise<UserRow | null> {
 	if (!token) {
 		return null;
@@ -185,8 +192,34 @@ export async function deleteUser(env: Env, userId: string): Promise<void> {
 	if (user.role === 'admin' && (await countAdmins(env)) <= 1) {
 		throw new HttpError(400, 'Cannot delete the last remaining admin.');
 	}
-	await deleteLibraryForUser(env, userId);
-	await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
+	await env.DB.batch([...libraryCleanupForUser(env, userId), env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)]);
+}
+
+/** Sets a new password and bumps session_version, which signs out every existing session. */
+export async function setUserPassword(env: Env, userId: string, password: string): Promise<UserRow> {
+	assertPassword(password);
+	const user = await getUserById(env, userId);
+	if (!user) {
+		throw new HttpError(404, 'User not found');
+	}
+	const passwordHash = await hashPassword(password);
+	const now = new Date().toISOString();
+	const updated = await env.DB.prepare(
+		'UPDATE users SET password_hash = ?, session_version = session_version + 1, updated_at = ? WHERE id = ? RETURNING *',
+	)
+		.bind(passwordHash, now, userId)
+		.first<UserRow>();
+	if (!updated) {
+		throw new HttpError(404, 'User not found');
+	}
+	return updated;
+}
+
+/** Invalidates every session cookie issued for this user. */
+export async function revokeUserSessions(env: Env, userId: string): Promise<void> {
+	await env.DB.prepare('UPDATE users SET session_version = session_version + 1, updated_at = ? WHERE id = ?')
+		.bind(new Date().toISOString(), userId)
+		.run();
 }
 
 export function publicUser(user: UserRow) {
