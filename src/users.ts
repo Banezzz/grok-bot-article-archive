@@ -24,6 +24,23 @@ export type SessionUser = {
 	sessionVersion: number;
 };
 
+export type UserListRow = UserRow & {
+	article_count: number;
+};
+
+/** What happens to a deleted user's articles: hand them to the admin doing the delete, or remove them. */
+export type DeletedArticlesMode = 'transfer' | 'delete';
+
+export function parseDeletedArticlesMode(value: unknown): DeletedArticlesMode | null {
+	return value === 'transfer' || value === 'delete' ? value : null;
+}
+
+export type DeleteUserResult = {
+	username: string;
+	articles: number;
+	mode: DeletedArticlesMode | null;
+};
+
 export type CreatedUser = {
 	user: UserRow;
 	uploadToken: string;
@@ -71,9 +88,12 @@ export async function getUserByUsername(env: Env, username: string): Promise<Use
 	return env.DB.prepare('SELECT * FROM users WHERE username = ?').bind(username.toLowerCase()).first<UserRow>();
 }
 
-export async function listUsers(env: Env): Promise<UserRow[]> {
-	const result = await env.DB.prepare('SELECT * FROM users ORDER BY created_at ASC').all<UserRow>();
-	return result.results ?? [];
+export async function listUsers(env: Env): Promise<UserListRow[]> {
+	const result = await env.DB.prepare(
+		`SELECT users.*, (SELECT COUNT(*) FROM articles WHERE articles.owner_id = users.id) AS article_count
+		 FROM users ORDER BY created_at ASC`,
+	).all<UserListRow>();
+	return (result.results ?? []).map((row) => ({ ...row, article_count: Number(row.article_count ?? 0) }));
 }
 
 async function applyUploadToken(env: Env, userId: string): Promise<{ token: string; prefix: string; hash: string; updatedAt: string }> {
@@ -184,7 +204,20 @@ export async function setUserRole(env: Env, userId: string, role: UserRole): Pro
 	return { ...user, role, updated_at: now };
 }
 
-export async function deleteUser(env: Env, userId: string): Promise<void> {
+/** R2 accepts at most 1000 keys per delete call. */
+const R2_DELETE_BATCH = 1000;
+
+/**
+ * Deletes a user. Articles they own (articles.owner_id references users.id) must be
+ * either transferred to the acting admin or deleted with them; the choice is required
+ * whenever the user owns any. All D1 changes run in one batch, and R2 objects of
+ * deleted articles are removed only after it commits.
+ */
+export async function deleteUser(
+	env: Env,
+	userId: string,
+	options: { actingAdminId: string; articles: DeletedArticlesMode | null },
+): Promise<DeleteUserResult> {
 	const user = await getUserById(env, userId);
 	if (!user) {
 		throw new HttpError(404, 'User not found');
@@ -192,7 +225,39 @@ export async function deleteUser(env: Env, userId: string): Promise<void> {
 	if (user.role === 'admin' && (await countAdmins(env)) <= 1) {
 		throw new HttpError(400, 'Cannot delete the last remaining admin.');
 	}
-	await env.DB.batch([...libraryCleanupForUser(env, userId), env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)]);
+	const owned = await env.DB.prepare('SELECT r2_key, thumbnail_key FROM articles WHERE owner_id = ?')
+		.bind(userId)
+		.all<{ r2_key: string; thumbnail_key: string | null }>();
+	const articles = owned.results ?? [];
+	const mode = articles.length > 0 ? options.articles : null;
+	if (articles.length > 0 && !mode) {
+		throw new HttpError(400, "Choose whether to transfer or delete this user's articles.");
+	}
+	if (mode === 'transfer' && options.actingAdminId === userId) {
+		throw new HttpError(400, 'Articles cannot be transferred to the account being deleted.');
+	}
+
+	const ownedIds = 'SELECT id FROM articles WHERE owner_id = ?';
+	const articleStatements =
+		mode === 'transfer'
+			? [env.DB.prepare('UPDATE articles SET owner_id = ?, updated_at = ? WHERE owner_id = ?').bind(options.actingAdminId, new Date().toISOString(), userId)]
+			: mode === 'delete'
+				? [
+						env.DB.prepare(`DELETE FROM article_tags WHERE article_id IN (${ownedIds})`).bind(userId),
+						env.DB.prepare(`DELETE FROM folder_articles WHERE article_id IN (${ownedIds})`).bind(userId),
+						env.DB.prepare(`DELETE FROM article_stars WHERE article_id IN (${ownedIds})`).bind(userId),
+						env.DB.prepare('DELETE FROM articles WHERE owner_id = ?').bind(userId),
+					]
+				: [];
+	await env.DB.batch([...articleStatements, ...libraryCleanupForUser(env, userId), env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId)]);
+
+	if (mode === 'delete') {
+		const keys = articles.flatMap((row) => [row.r2_key, row.thumbnail_key]).filter((key): key is string => Boolean(key));
+		for (let i = 0; i < keys.length; i += R2_DELETE_BATCH) {
+			await env.ARTICLES.delete(keys.slice(i, i + R2_DELETE_BATCH));
+		}
+	}
+	return { username: user.username, articles: articles.length, mode };
 }
 
 /** Sets a new password and bumps session_version, which signs out every existing session. */

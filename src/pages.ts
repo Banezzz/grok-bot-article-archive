@@ -28,7 +28,7 @@ import { FOLDER_PICKER_SCRIPT, FOLDER_PICKER_STYLE, folderPickerMarkup, folderPi
 import { LIGHTBOX_SCRIPT, LIGHTBOX_STYLE, lightboxInjection, lightboxMarkup, lightboxStyleTag } from './lightbox';
 import { SHARE_DIALOG_SCRIPT, SHARE_DIALOG_STYLE, shareDialogInjection, shareDialogMarkup, shareDialogStyleTag } from './share-dialog';
 import { isArticleShared, type ArticleSort, type ArticleView, type TagCount } from './store';
-import type { SessionUser, UserRow } from './users';
+import type { SessionUser, UserListRow } from './users';
 import { escapeHtml, safeHttpUrl } from './util';
 
 export type Chrome = {
@@ -185,7 +185,8 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--bo
 th { color: var(--muted); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 tr:last-child td { border-bottom: 0; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.actions .reset-password { display: inline-flex; gap: 6px; }
+.actions .reset-password, .actions .delete-user { display: inline-flex; gap: 6px; }
+.actions .delete-user select { width: auto; margin: 0; }
 .actions .reset-password input { width: 14ch; margin: 0; }
 .add-user { display: grid; grid-template-columns: 1fr 1fr 140px auto; gap: 10px; align-items: end; margin: 0 0 20px; padding: 16px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
 .add-user input, .add-user select { margin: 0; }
@@ -909,10 +910,33 @@ export function settingsPage(chrome: Chrome, viewer: SessionUser, prefix: string
 	return htmlPage(t(locale, 'settingsTitle'), body, chrome, 200, headers);
 }
 
+/**
+ * A user who owns articles can only be deleted with an explicit choice for them: the
+ * select is required and has no default. Deleting yourself can only take the articles along.
+ */
+function deleteUserForm(user: UserListRow, isSelf: boolean, disabled: boolean, locale: Locale): string {
+	const action = `/admin/users/${encodeURIComponent(user.id)}/delete`;
+	const disabledAttr = disabled ? ' disabled' : '';
+	if (user.article_count === 0) {
+		return `<form method="post" action="${action}">
+            <button class="danger" type="submit"${disabledAttr}>${escapeHtml(t(locale, 'delete'))}</button>
+          </form>`;
+	}
+	const transfer = isSelf ? '' : `<option value="transfer">${escapeHtml(t(locale, 'deleteArticlesTransfer'))}</option>`;
+	return `<form class="delete-user" method="post" action="${action}">
+            <select name="articles" required aria-label="${escapeHtml(t(locale, 'deleteArticlesChoice', { n: user.article_count }))}"${disabledAttr}>
+              <option value="" disabled selected>${escapeHtml(t(locale, 'deleteArticlesChoice', { n: user.article_count }))}</option>
+              ${transfer}
+              <option value="delete">${escapeHtml(t(locale, 'deleteArticlesDelete'))}</option>
+            </select>
+            <button class="danger" type="submit"${disabledAttr}>${escapeHtml(t(locale, 'delete'))}</button>
+          </form>`;
+}
+
 export function adminUsersPage(
 	chrome: Chrome,
 	viewer: SessionUser,
-	users: UserRow[],
+	users: UserListRow[],
 	issued?: { username: string; token: string },
 	error?: string,
 	notice?: string,
@@ -927,6 +951,7 @@ export function adminUsersPage(
         <td>${escapeHtml(user.username)}${isSelf ? escapeHtml(t(locale, 'you')) : ''}</td>
         <td>${escapeHtml(roleLabel)}</td>
         <td><code>${escapeHtml(user.upload_token_prefix ?? '—')}</code></td>
+        <td>${user.article_count}</td>
         <td>${escapeHtml(formatUiDate(user.created_at, locale))}</td>
         <td class="actions">
           <form method="post" action="/admin/users/${encodeURIComponent(user.id)}/role">
@@ -940,9 +965,7 @@ export function adminUsersPage(
             <input name="password" type="password" autocomplete="new-password" required minlength="8" aria-label="${escapeHtml(t(locale, 'newPasswordFor', { user: user.username }))}" placeholder="${escapeHtml(t(locale, 'newPassword'))}">
             <button class="ghost" type="submit">${escapeHtml(t(locale, 'resetPassword'))}</button>
           </form>
-          <form method="post" action="/admin/users/${encodeURIComponent(user.id)}/delete">
-            <button class="danger" type="submit" ${demoteDisabled && user.role === 'admin' ? 'disabled' : ''}>${escapeHtml(t(locale, 'delete'))}</button>
-          </form>
+          ${deleteUserForm(user, isSelf, demoteDisabled && user.role === 'admin', locale)}
         </td>
       </tr>`;
 		})
@@ -978,7 +1001,7 @@ export function adminUsersPage(
     </form>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>${escapeHtml(t(locale, 'username'))}</th><th>${escapeHtml(t(locale, 'role'))}</th><th>${escapeHtml(t(locale, 'tokenPrefix'))}</th><th>${escapeHtml(t(locale, 'created'))}</th><th></th></tr></thead>
+        <thead><tr><th>${escapeHtml(t(locale, 'username'))}</th><th>${escapeHtml(t(locale, 'role'))}</th><th>${escapeHtml(t(locale, 'tokenPrefix'))}</th><th>${escapeHtml(t(locale, 'articlesColumn'))}</th><th>${escapeHtml(t(locale, 'created'))}</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>

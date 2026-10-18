@@ -170,6 +170,15 @@ const ZH = {
 	resetPassword: '重置密码',
 	newPasswordFor: '{user} 的新密码',
 	passwordResetFor: '已重置 {user} 的密码，该用户所有设备均已退出登录。',
+	articlesColumn: '文章',
+	deleteArticlesChoice: '{n} 篇文章如何处理…',
+	deleteArticlesTransfer: '转给我',
+	deleteArticlesDelete: '一并删除',
+	userDeleted: '已删除用户 {user}。',
+	userDeletedTransferred: '已删除用户 {user}，其 {n} 篇文章已转到你名下。',
+	userDeletedWithArticles: '已删除用户 {user} 及其 {n} 篇文章。',
+	deleteArticlesRequired: '该用户名下有文章，请选择转给你还是一并删除。',
+	transferToSelf: '不能把文章转给正在删除的账号。',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -337,6 +346,15 @@ const EN: Record<MessageKey, string> = {
 	resetPassword: 'Reset password',
 	newPasswordFor: 'New password for {user}',
 	passwordResetFor: 'Password reset for {user}. All of their sessions were signed out.',
+	articlesColumn: 'Articles',
+	deleteArticlesChoice: 'Their {n} article(s)…',
+	deleteArticlesTransfer: 'Transfer to me',
+	deleteArticlesDelete: 'Delete them too',
+	userDeleted: 'Deleted user {user}.',
+	userDeletedTransferred: 'Deleted user {user}. Their {n} article(s) now belong to you.',
+	userDeletedWithArticles: 'Deleted user {user} and their {n} article(s).',
+	deleteArticlesRequired: "Choose whether to transfer or delete this user's articles.",
+	transferToSelf: 'Articles cannot be transferred to the account being deleted.',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
@@ -358,6 +376,8 @@ const ERROR_KEYS: Record<string, MessageKey> = {
 	'Folder not found': 'folderNotFound',
 	'Too many failed sign-in attempts. Try again in a few minutes.': 'tooManyAttempts',
 	'Current password is incorrect.': 'currentPasswordWrong',
+	"Choose whether to transfer or delete this user's articles.": 'deleteArticlesRequired',
+	'Articles cannot be transferred to the account being deleted.': 'transferToSelf',
 };
 
 export function parseLocale(request: Request): Locale {

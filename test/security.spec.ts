@@ -340,6 +340,120 @@ describe('security hardening', () => {
 		});
 	});
 
+	describe('deleting users who own articles', () => {
+		const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+		async function seedReaderLibrary(admin: { cookie: string }) {
+			const reader = await addReader(admin.cookie);
+			expect((await upload(reader.token, { slug: 'reader-a', tags: ['ai'], thumbnail_base64: PNG })).status).toBe(200);
+			expect((await upload(reader.token, { slug: 'reader-b' })).status).toBe(200);
+			// The admin stars one of the reader's articles and files it in the admin's own folder.
+			expect((await form('/star', admin.cookie, { slug: 'reader-a', next: '/' })).status).toBe(303);
+			expect((await form('/folders', admin.cookie, { name: 'Admin picks' })).status).toBe(200);
+			const folder = await env.DB.prepare("SELECT id FROM folders WHERE name = 'Admin picks'").first<{ id: string }>();
+			expect((await form('/folders/membership', admin.cookie, { slug: 'reader-a', next: '/', folder_id: folder!.id })).status).toBe(303);
+			// The reader has a folder of their own.
+			const readerCookie = cookieFrom(await login('reader', READER_PASS));
+			expect((await form('/folders', readerCookie, { name: 'Reader stuff' })).status).toBe(200);
+			return reader;
+		}
+
+		async function count(sql: string): Promise<number> {
+			return Number((await env.DB.prepare(sql).first<{ n: number }>())?.n ?? 0);
+		}
+
+		it('requires an explicit choice and changes nothing without one', async () => {
+			const admin = await setupAdmin();
+			const reader = await seedReaderLibrary(admin);
+			const page = await SELF.fetch(`${ORIGIN}/admin/users`, { headers: { cookie: admin.cookie } });
+			const html = await page.text();
+			expect(html).toContain('<select name="articles" required');
+			expect(html).toContain('2 篇文章如何处理');
+
+			for (const choice of [undefined, '', 'keep']) {
+				const fields: Record<string, string> = choice === undefined ? {} : { articles: choice };
+				const response = await form(`/admin/users/${reader.id}/delete`, admin.cookie, fields);
+				expect(response.status).toBe(200);
+				expect(await response.text()).toContain('请选择转给你还是一并删除');
+			}
+			expect(await count('SELECT COUNT(*) AS n FROM users')).toBe(2);
+			expect(await count('SELECT COUNT(*) AS n FROM articles')).toBe(2);
+			expect(await count('SELECT COUNT(*) AS n FROM folders')).toBe(2);
+		});
+
+		it('transfers the articles to the acting admin', async () => {
+			const admin = await setupAdmin();
+			const reader = await seedReaderLibrary(admin);
+			const keysBefore = await r2Keys('');
+
+			const response = await form(`/admin/users/${reader.id}/delete`, admin.cookie, { articles: 'transfer' });
+			expect(response.status).toBe(200);
+			expect(await response.text()).toContain('其 2 篇文章已转到你名下');
+
+			expect(await count(`SELECT COUNT(*) AS n FROM users WHERE id = '${reader.id}'`)).toBe(0);
+			expect(await count(`SELECT COUNT(*) AS n FROM articles WHERE owner_id = '${admin.id}'`)).toBe(2);
+			expect(await count('SELECT COUNT(*) AS n FROM article_tags')).toBe(1);
+			// The admin's star and folder survive; the reader's folder is gone.
+			expect(await count('SELECT COUNT(*) AS n FROM article_stars')).toBe(1);
+			expect(await count('SELECT COUNT(*) AS n FROM folder_articles')).toBe(1);
+			expect(await count("SELECT COUNT(*) AS n FROM folders WHERE name = 'Reader stuff'")).toBe(0);
+			expect(await r2Keys('')).toEqual(keysBefore);
+			expect((await login('reader', READER_PASS)).status).toBe(200);
+			expect((await SELF.fetch(`${ORIGIN}/a/reader-a`, { headers: { cookie: admin.cookie } })).status).toBe(200);
+		});
+
+		it('deletes the articles with the user, including every reference and R2 object', async () => {
+			const admin = await setupAdmin();
+			const reader = await seedReaderLibrary(admin);
+			expect((await upload(admin.token, { slug: 'admin-own', tags: ['ai'] })).status).toBe(200);
+
+			const response = await form(`/admin/users/${reader.id}/delete`, admin.cookie, { articles: 'delete' });
+			expect(response.status).toBe(200);
+			expect(await response.text()).toContain('已删除用户 reader 及其 2 篇文章');
+
+			expect(await count(`SELECT COUNT(*) AS n FROM users WHERE id = '${reader.id}'`)).toBe(0);
+			const remaining = await env.DB.prepare('SELECT slug FROM articles').all<{ slug: string }>();
+			expect(remaining.results.map((row) => row.slug)).toEqual(['admin-own']);
+			expect(await count('SELECT COUNT(*) AS n FROM article_tags')).toBe(1);
+			expect(await count('SELECT COUNT(*) AS n FROM article_stars')).toBe(0);
+			expect(await count('SELECT COUNT(*) AS n FROM folder_articles')).toBe(0);
+			expect(await count("SELECT COUNT(*) AS n FROM folders WHERE name = 'Admin picks'")).toBe(1);
+			expect(await r2Keys('articles/reader-')).toEqual([]);
+			expect(await r2Keys('thumbs/reader-')).toEqual([]);
+			expect(await r2Keys('articles/admin-own/')).toHaveLength(1);
+		});
+
+		it('lets an admin delete their own account only by deleting its articles', async () => {
+			const admin = await setupAdmin();
+			expect((await form('/admin/users', admin.cookie, { username: 'second', password: 'second-pass-1', role: 'admin' })).status).toBe(200);
+			expect((await upload(admin.token, { slug: 'mine' })).status).toBe(200);
+			const page = await (await SELF.fetch(`${ORIGIN}/admin/users`, { headers: { cookie: admin.cookie } })).text();
+			const selfForm = page.slice(page.indexOf(`/admin/users/${admin.id}/delete`));
+			expect(selfForm.slice(0, selfForm.indexOf('</form>'))).not.toContain('value="transfer"');
+
+			const refused = await form(`/admin/users/${admin.id}/delete`, admin.cookie, { articles: 'transfer' });
+			expect(await refused.text()).toContain('不能把文章转给正在删除的账号');
+			expect(await count('SELECT COUNT(*) AS n FROM articles')).toBe(1);
+
+			const removed = await form(`/admin/users/${admin.id}/delete`, admin.cookie, { articles: 'delete' });
+			expect(removed.status).toBe(303);
+			expect(await count('SELECT COUNT(*) AS n FROM articles')).toBe(0);
+			expect(await count("SELECT COUNT(*) AS n FROM users WHERE username = 'admin'")).toBe(0);
+		});
+
+		it('deletes a user without articles with no choice needed', async () => {
+			const admin = await setupAdmin();
+			const reader = await addReader(admin.cookie);
+			const page = await (await SELF.fetch(`${ORIGIN}/admin/users`, { headers: { cookie: admin.cookie } })).text();
+			const readerForm = page.slice(page.indexOf(`/admin/users/${reader.id}/delete`));
+			expect(readerForm.slice(0, readerForm.indexOf('</form>'))).not.toContain('<select');
+			const response = await form(`/admin/users/${reader.id}/delete`, admin.cookie, {});
+			expect(response.status).toBe(200);
+			expect(await response.text()).toContain('已删除用户 reader。');
+			expect(await count('SELECT COUNT(*) AS n FROM users')).toBe(1);
+		});
+	});
+
 	describe('thumbnails', () => {
 		it('caps remote thumbnail downloads at 20MB while streaming', async () => {
 			expect(MAX_THUMB_BYTES).toBe(20 * 1024 * 1024);
