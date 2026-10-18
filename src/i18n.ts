@@ -156,6 +156,20 @@ const ZH = {
 	loadMore: '加载更多',
 	loadingMore: '正在加载…',
 	loadMoreError: '加载失败，请重试',
+	tooManyAttempts: '登录失败次数过多，请几分钟后再试。',
+	currentPasswordWrong: '当前密码不正确。',
+	changePasswordHeading: '修改密码',
+	changePasswordLead: '修改后，其他设备上的登录会全部失效，当前设备保持登录。',
+	currentPassword: '当前密码',
+	newPassword: '新密码',
+	changePassword: '修改密码',
+	passwordChanged: '密码已修改，其他设备已退出登录。',
+	sessionsHeading: '登录会话',
+	sessionsLead: '让所有设备（包括当前设备）上的登录立即失效。',
+	signOutEverywhere: '退出所有设备',
+	resetPassword: '重置密码',
+	newPasswordFor: '{user} 的新密码',
+	passwordResetFor: '已重置 {user} 的密码，该用户所有设备均已退出登录。',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -309,6 +323,20 @@ const EN: Record<MessageKey, string> = {
 	loadMore: 'Load more',
 	loadingMore: 'Loading…',
 	loadMoreError: 'Could not load more. Try again.',
+	tooManyAttempts: 'Too many failed sign-in attempts. Try again in a few minutes.',
+	currentPasswordWrong: 'Current password is incorrect.',
+	changePasswordHeading: 'Change password',
+	changePasswordLead: 'Changing it signs out every other device. This one stays signed in.',
+	currentPassword: 'Current password',
+	newPassword: 'New password',
+	changePassword: 'Change password',
+	passwordChanged: 'Password changed. Other devices were signed out.',
+	sessionsHeading: 'Sessions',
+	sessionsLead: 'Immediately sign out every device, including this one.',
+	signOutEverywhere: 'Sign out everywhere',
+	resetPassword: 'Reset password',
+	newPasswordFor: 'New password for {user}',
+	passwordResetFor: 'Password reset for {user}. All of their sessions were signed out.',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
@@ -328,6 +356,8 @@ const ERROR_KEYS: Record<string, MessageKey> = {
 	'Folder name is too long.': 'folderNameTooLong',
 	'A folder with that name already exists.': 'folderNameTaken',
 	'Folder not found': 'folderNotFound',
+	'Too many failed sign-in attempts. Try again in a few minutes.': 'tooManyAttempts',
+	'Current password is incorrect.': 'currentPasswordWrong',
 };
 
 export function parseLocale(request: Request): Locale {

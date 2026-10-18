@@ -1,6 +1,6 @@
 # HTML templates
 
-The templates in `templates/` are deliberately dependency-free HTML documents. Copy one, replace its `{{PLACEHOLDER}}` values, and generate the article body before uploading. Do not add a remote stylesheet, script, font, image CDN, or tracker: an archive should remain readable when the source disappears.
+The templates in `templates/` are deliberately dependency-free HTML documents. Copy one, replace its `{{PLACEHOLDER}}` values, and generate the article body before uploading. Do not add a remote stylesheet, script, font, image CDN, or tracker: an archive should remain readable when the source disappears. The Worker enforces part of this: scripts in stored HTML are blocked by Content-Security-Policy, and forms are made inert, so an article must read correctly without either.
 
 Prefer these repo templates (or equivalent CSS). Do not invent a new reading chrome with hardcoded absolute background or text colors. Those fight the archive site theme toggle and often leave secondary English unreadable.
 

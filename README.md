@@ -26,9 +26,10 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `POST /folders/membership` | Session | Set which of *your* folders contain an article (`folder_id` checkboxes, `slug`, `next`) |
 | `POST /star` | Session | Toggle your star on an article (`slug`, `next`) |
 | `POST /share` | Session (owner or admin) | Turn public sharing on or off for one article (`slug`, `shared=1` or `0`, `next`). Default is private. |
-| `GET /settings` | Session | Upload token prefix; rotate and copy once |
-| `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens |
-| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus interface lang/theme). Serve-time injection adds chrome, lightbox, a theme-override stylesheet, and a reader content-language switch under the article title (`?lang=zh\|en\|both`, remembered in `localStorage`) so bilingual articles can show Chinese, English, or both. Older HTML that only marked the English sibling is recovered at serve time; Chinese-only pages never hide content. Stored R2 HTML is unchanged. |
+| `GET /settings` | Session | Upload token prefix; rotate and copy once; change password; sign out everywhere |
+| `POST /settings/password` · `POST /settings/sessions/revoke` | Session | Change your password (needs the current one; signs out your other devices) · sign out every device |
+| `GET /admin/users` | Admin | Create / delete / promote / demote users; rotate tokens; reset a password (`POST /admin/users/:id/password`, signs that user out everywhere) |
+| `GET /a/:slug` | Session, or public when that article is shared | Stored HTML (404 if not owner and not admin, unless shared). Owner/admin chrome includes HTML download, share toggle, star, folders, and a click-to-zoom image lightbox. A public share view shows only that article (plus interface lang/theme). Serve-time injection adds chrome, lightbox, a theme-override stylesheet, and a reader content-language switch under the article title (`?lang=zh\|en\|both`, remembered in `localStorage`) so bilingual articles can show Chinese, English, or both. Older HTML that only marked the English sibling is recovered at serve time; Chinese-only pages never hide content. Scripts inside the stored HTML never run (CSP), and its forms are made inert. Stored R2 HTML is unchanged. |
 | `GET /a/:slug/download` | Session | Same HTML as an attachment |
 | `GET /thumb/:slug` | Session, or public when that article is shared | Thumbnail (same visibility as the article page) |
 | `GET /api/articles` | Session | Metadata JSON; same list filters as `/`. Keyset pagination via `cursor` and `limit` (default 30, max 100); response includes `next_cursor`. Shared articles are not listed without a session. |
@@ -37,9 +38,17 @@ The template ships with a default favicon (stacked documents and a mint bookmark
 | `POST /api/upload` | Bearer = that user's upload token | Store HTML; owner is the token's user |
 | `DELETE /api/articles/:slug` | Bearer = user token | Delete if owner or admin token |
 
-Sessions last 30 days. The cookie is HMAC-signed with `SITE_ACCESS_SECRET` and contains `{v:2, uid, role, exp, iat}`. Passwords are PBKDF2-SHA-256 (~100k iterations). Upload tokens are 32-byte url-safe values; only SHA-256 hashes are stored. The shared env `UPLOAD_TOKEN` is ignored after any user token exists. `SITE_PASSWORD` is no longer used for daily login.
+Sessions last 30 days. The cookie is HMAC-signed with `SITE_ACCESS_SECRET` and contains `{v:2, uid, role, exp, iat, sv}`. `sv` must match the user's `session_version`, so a password change, an admin password reset, or **Sign out everywhere** revokes existing cookies at once (cookies from before migration `0006` count as `sv: 0`). Passwords are PBKDF2-SHA-256 (~100k iterations). Failed sign-ins are throttled in D1: 10 per username and 20 per client IP in a 15-minute window, after which `/login` answers `429` without checking the password. The per-username limit means someone guessing at an account can briefly lock its owner out too; that is the trade-off for stopping distributed guessing. Upload tokens are 32-byte url-safe values; only SHA-256 hashes are stored. The shared env `UPLOAD_TOKEN` is ignored after any user token exists. `SITE_PASSWORD` is no longer used for daily login.
 
 Folder and star writes are **session form POSTs**. `POST /api/upload` is unchanged (JSON + bearer token).
+
+### Security model
+
+- Archived HTML is served from the same origin as the app, so every HTML response carries a Content-Security-Policy that only allows the archive's own inline scripts (by SHA-256 hash). A `<script>`, inline event handler, or `javascript:` URL inside an uploaded article does not run. Article images, styles, fonts, and embeds still load as before.
+- `<form>` elements and `formaction`/`form` attributes inside archived HTML are rewritten at serve time so they cannot submit to the archive with the reader's cookies.
+- All HTML responses send `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+- Cookie-authenticated `POST`s are rejected with `403` when the browser's `Origin` (or `Sec-Fetch-Site`) says they came from another site. Bearer-token APIs are exempt.
+- An upload that names an existing slug may replace it only if the token belongs to that article's owner or to an admin; otherwise it gets `409` and nothing is written.
 
 ## Prerequisites
 
@@ -140,7 +149,7 @@ npm run db:migrate:remote
 npx wrangler deploy
 ```
 
-`db:migrate:remote` applies `0001`–`0005` (articles, tags, users, folders/stars, per-article share).
+`db:migrate:remote` applies `0001`–`0006` (articles, tags, users, folders/stars, per-article share, session versions and login throttling). Apply `0006` **before** deploying this version: login and session checks read its columns.
 
 Visit `https://<YOUR_WORKER>.workers.dev/setup` once, then `/login`.
 
@@ -207,13 +216,13 @@ The intended writer is a local or scheduled bot that POSTs captured article HTML
 Rules the bot should follow:
 
 - Always send `title`, `source_url`, and `html`.
-- Omit `slug` unless you want to **upsert** a known article. The same slug overwrites HTML and metadata.
+- Omit `slug` unless you want to **upsert** a known article. The same slug overwrites HTML and metadata, but only for the article's owner or an admin token; anyone else gets `409`.
 - Auto slugs look like `example-bilingual-note-2026-09-14`. Titles without Latin characters become `article-YYYY-MM-DD` plus a short suffix if needed.
 - Send `lang` as a short tag (`en`, `zh`, `en-zh`, …). It is shown as a badge on the list.
 - For bilingual HTML, mark each language-specific block (`class="zh"` / `class="en"` and `lang="zh"` / `lang="en"`, Chinese first) so the article header can switch 中文 / English / 中英对照.
 - Write `summary_zh` in the bot (the Worker only stores it). Omit it to keep an existing summary on upsert, or leave new articles without a summary.
 - Send `tags` as slugs. Known slugs use the seeded Chinese names. Unknown slugs are auto-created with `name_zh` equal to the slug. Omit `tags` on upsert to keep the current set; send `[]` to clear.
-- Thumbnails: prefer `thumbnail_url` or `thumbnail_base64`. If both are omitted, the Worker tries the first `<img src>` in the HTML (http(s) or data URI). Stored at `thumbs/{slug}.ext` and served at `/thumb/{slug}` (session required).
+- Thumbnails: prefer `thumbnail_url` or `thumbnail_base64`. If both are omitted, the Worker tries the first `<img src>` in the HTML (http(s) or data URI). Thumbnails up to 20 MiB are accepted (`thumbnail_base64` is still bounded by the 8 MiB request). Stored at `thumbs/{slug}/{version}.ext` and served at `/thumb/{slug}` (session required, or public when the article is shared). Article HTML is stored at `articles/{slug}/{version}.html`; each upload writes a new version and removes the previous one after the D1 row switches over.
 - On success, persist the returned `slug` / `url` if you want to update or delete later.
 - Delete with `DELETE /api/articles/:slug` and the same bearer token.
 
@@ -286,7 +295,7 @@ Access is an upgrade, not a requirement. It is not available on every Free-plan 
 ```
 src/            Worker entry, auth, D1/R2 store, HTML pages, injected image lightbox
 assets/icons/   Default favicon and app icons the Worker serves as public static files
-migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars, 0005 article share)
+migrations/     D1 schema (0001 articles, 0002 tags, 0003 users, 0004 folders/stars, 0005 article share, 0006 sessions/login throttle)
 scripts/        Example upload curl
 docs/           Deploy guide, bot handoff, upload API, HTML template notes
 skills/         Packaged archive skills (image crawl)

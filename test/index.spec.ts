@@ -61,6 +61,12 @@ async function addUser(adminCookie: string, username: string, password: string, 
 	return tokenFromHtml(await response.text());
 }
 
+/** R2 keys are versioned per upload; resolve the current one through the D1 row. */
+async function storedObject(slug: string) {
+	const row = await env.DB.prepare('SELECT r2_key FROM articles WHERE slug = ?').bind(slug).first<{ r2_key: string }>();
+	return row ? env.ARTICLES.get(row.r2_key) : null;
+}
+
 function checkedFolderIds(html: string): string[] {
 	return [...html.matchAll(/<input type="checkbox" name="folder_id" value="([^"]+)"([^>]*)>/g)]
 		.filter((match) => /\bchecked\b/.test(match[2] ?? ''))
@@ -752,7 +758,7 @@ a { color:#0b3d2e; }
 		expect(unsetHtml).toContain('data-archive-theme-override');
 		expect(unsetHtml).toContain('prefers-color-scheme: dark');
 
-		const object = await env.ARTICLES.get('articles/hardcoded-theme.html');
+		const object = await storedObject('hardcoded-theme');
 		expect(await object!.text()).toBe(storedHtml);
 
 		const download = await SELF.fetch('http://example.com/a/hardcoded-theme/download', {
@@ -802,7 +808,7 @@ a { color:#0b3d2e; }
 			).status,
 		).toBe(200);
 
-		const object = await env.ARTICLES.get('articles/photo-note.html');
+		const object = await storedObject('photo-note');
 		expect(object).toBeTruthy();
 		const raw = await object!.text();
 		expect(raw).toBe(storedHtml);
@@ -947,7 +953,7 @@ a { color:#0b3d2e; }
 		expect(chinesePage).not.toMatch(/<html\b[^>]*\bdata-bilingual=/);
 		expect(chinesePage).toContain('data-archive-content-lang-script');
 
-		const stored = await env.ARTICLES.get('articles/bilingual-garden.html');
+		const stored = await storedObject('bilingual-garden');
 		expect(await stored!.text()).toBe(bilingualHtml);
 
 		const download = await SELF.fetch('http://example.com/a/bilingual-garden/download', {
@@ -1052,7 +1058,7 @@ a { color:#0b3d2e; }
 		expect(switchAt).toBeGreaterThan(page.indexOf('</header>'));
 		expect(switchAt).toBeLessThan(page.indexOf('花园里的番茄已经红了'));
 
-		const stored = await env.ARTICLES.get('articles/unmarked-garden.html');
+		const stored = await storedObject('unmarked-garden');
 		expect(await stored!.text()).toBe(unmarked);
 		const download = await SELF.fetch('http://example.com/a/unmarked-garden/download', { headers: { cookie } });
 		expect(await download.text()).toBe(unmarked);

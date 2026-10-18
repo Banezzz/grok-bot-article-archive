@@ -18,3 +18,12 @@ declare module '*.png' {
 	const data: ArrayBuffer;
 	export default data;
 }
+
+// Provided by the nodejs_compat flag; only the synchronous hash used for CSP script hashes is declared.
+declare module 'node:crypto' {
+	interface Hash {
+		update(data: string, encoding: 'utf8'): Hash;
+		digest(encoding: 'base64'): string;
+	}
+	export function createHash(algorithm: 'sha256'): Hash;
+}

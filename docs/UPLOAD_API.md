@@ -25,13 +25,13 @@ The request body must be a JSON object. The complete request body is limited to 
 | `html` | yes | non-empty string; UTF-8 request and HTML limit 8 MiB | Full self-contained HTML. It is stored in R2 as `text/html; charset=utf-8`. |
 | `author` | no | string, max 200 characters | Empty, null, or omitted values are ignored. |
 | `lang` | no | string, max 16 characters | A source-language label such as `en` or `zh`. |
-| `slug` | no | string, max 128 characters; lowercase letters, digits, and hyphens; starts and ends with a letter or digit | Reuses/upserts an existing article with that slug. If omitted, a slug is generated from the title and date. |
+| `slug` | no | string, max 128 characters; lowercase letters, digits, and hyphens; starts and ends with a letter or digit | Reuses/upserts an existing article with that slug. Only the article's owner or an admin token may replace it; any other token gets `409`. If omitted, a slug is generated from the title and date (with a random suffix on collision). |
 | `published_at` | no | string, max 64 characters; must parse as a date | Prefer an ISO-8601 datetime. |
 | `notes` | no | string, max 4,000 characters | Operator notes. |
 | `summary_zh` | no | string, max 4,000 characters | Chinese summary shown with the article metadata. Operationally recommended for bot uploads. |
 | `tags` | no | array of strings; each normalized to lowercase, valid slug, max 64 characters | Duplicate slugs are removed. Use conservative topical tags. |
-| `thumbnail_url` | no | string, max 2,048 characters | Optional thumbnail source URL. The application attempts to fetch and store it. |
-| `thumbnail_base64` | no | string, max 4 MiB | Optional image data, preferably a complete data URI or supported base64 value. The application attempts to store it. |
+| `thumbnail_url` | no | string, max 2,048 characters | Optional thumbnail source URL. The application fetches it (images up to 20 MiB) and stores it. |
+| `thumbnail_base64` | no | string; decoded image max 20 MiB, but the whole request is still capped at 8 MiB | Optional image data, preferably a complete data URI or supported base64 value. The application attempts to store it. |
 
 For optional strings, empty strings and `null` are treated like omitted values. Invalid types, overlong values, invalid slugs, non-array tags, or invalid dates return `400` with a JSON error.
 
@@ -87,6 +87,7 @@ Common statuses:
 
 - `400`: invalid JSON, missing required field, wrong type, overlong value, invalid tag/slug, or invalid date.
 - `401`: missing or invalid Bearer token.
+- `409`: `slug` belongs to an article owned by someone else (or a generated slug could not be allocated).
 - `405`: method other than `POST`.
 - `413`: request body or HTML exceeds 8 MiB.
 - `500`: unexpected server-side failure.
