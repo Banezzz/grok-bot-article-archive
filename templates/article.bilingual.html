@@ -77,7 +77,16 @@
     figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; }
     figcaption { margin-top: 8px; color: var(--muted); font-size: 0.88rem; text-align: center; }
     .gap { margin: 1.25em 0; padding: 12px 14px; border: 1px dashed var(--border); border-radius: 8px; color: var(--muted); font-size: 0.9rem; }
-    .tweet-card { margin: 1.4em 0; padding: 0.2em 1em; border-left: 3px solid var(--border); }
+    .tweet-card { max-width: 560px; margin: 1.5em 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--fg); }
+    .tweet-card .tweet-head { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+    .tweet-card .tweet-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+    .tweet-card .tweet-author { display: flex; flex-direction: column; line-height: 1.3; }
+    .tweet-card .tweet-handle { color: var(--muted); font-size: 0.88em; }
+    .tweet-card p { margin: 0.35em 0; }
+    .tweet-card .tweet-media { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 4px; margin: 10px 0 4px; border-radius: 12px; overflow: hidden; }
+    .tweet-card .tweet-media img { display: block; width: 100%; height: 100%; max-height: 420px; object-fit: cover; }
+    .tweet-card .tweet-foot { margin: 8px 0 0; color: var(--muted); font-size: 0.85em; }
+    .tweet-card .tweet-foot a { color: var(--muted); }
     /* The live /a/:slug view injects html[data-content-lang=zh|en|both], hide/show CSS,
        and a content-language control under the title. Mark every language-specific block. */
   </style>
@@ -116,10 +125,21 @@
         </figcaption>
       </figure>
 
-      <!-- Quoted tweet / card: same Chinese-then-English marks inside the card. -->
-      <blockquote class="tweet-card">
+      <!-- Tweet / X post: a static card captured at archive time. Never use Twitter's
+           widgets.js or an iframe embed: the archive's CSP blocks scripts, and a live embed
+           disappears with the tweet. Embed the avatar and every media image as data URIs.
+           Drop .tweet-media when the post has no images; mark text lines zh/en as usual. -->
+      <blockquote class="tweet-card" cite="{{TWEET_URL}}">
+        <div class="tweet-head">
+          <img class="tweet-avatar" src="{{TWEET_AVATAR_DATA_URI}}" alt="" width="40" height="40">
+          <span class="tweet-author"><strong>{{TWEET_AUTHOR_NAME}}</strong><span class="tweet-handle">@{{TWEET_AUTHOR_HANDLE}}</span></span>
+        </div>
         <p class="zh" lang="zh">{{TWEET_ZH}}</p>
         <p class="en" lang="en">{{TWEET_EN}}</p>
+        <div class="tweet-media">
+          <img src="{{TWEET_MEDIA_DATA_URI}}" alt="{{TWEET_MEDIA_ALT}}">
+        </div>
+        <p class="tweet-foot"><a href="{{TWEET_URL}}" rel="noreferrer noopener"><time datetime="{{TWEET_TIME}}">{{TWEET_TIME_LABEL}}</time> · X</a></p>
       </blockquote>
 
       <!-- Unmarked pre/code, tables, and figures stay visible in every language mode. -->

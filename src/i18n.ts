@@ -194,6 +194,9 @@ const ZH = {
 	newFolderPlaceholder: '新文件夹名称',
 	uploadTokenHeading: '上传令牌',
 	deleteUser: '删除用户',
+	linkConfirmTitle: '打开外部链接',
+	linkConfirmLead: '您将跳转到链接为：',
+	confirm: '确认',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -385,6 +388,9 @@ const EN: Record<MessageKey, string> = {
 	newFolderPlaceholder: 'New folder name',
 	uploadTokenHeading: 'Upload token',
 	deleteUser: 'Delete user',
+	linkConfirmTitle: 'Open external link',
+	linkConfirmLead: 'You are about to open this link:',
+	confirm: 'Confirm',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
