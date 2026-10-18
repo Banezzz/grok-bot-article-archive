@@ -179,6 +179,21 @@ const ZH = {
 	userDeletedWithArticles: '已删除用户 {user} 及其 {n} 篇文章。',
 	deleteArticlesRequired: '该用户名下有文章，请选择转给你还是一并删除。',
 	transferToSelf: '不能把文章转给正在删除的账号。',
+	accountMenu: '账号菜单',
+	moreActions: '更多操作',
+	displayMenu: '显示设置',
+	openSource: '打开原文',
+	scopeAria: '文章范围',
+	tabAll: '全部',
+	manageFolders: '管理文件夹…',
+	allTagsMenu: '全部标签',
+	removeFilterAria: '移除筛选：{name}',
+	searchChip: '搜索：{q}',
+	clearFilters: '清除筛选',
+	deleteFolder: '删除文件夹',
+	newFolderPlaceholder: '新文件夹名称',
+	uploadTokenHeading: '上传令牌',
+	deleteUser: '删除用户',
 } as const;
 
 const EN: Record<MessageKey, string> = {
@@ -355,6 +370,21 @@ const EN: Record<MessageKey, string> = {
 	userDeletedWithArticles: 'Deleted user {user} and their {n} article(s).',
 	deleteArticlesRequired: "Choose whether to transfer or delete this user's articles.",
 	transferToSelf: 'Articles cannot be transferred to the account being deleted.',
+	accountMenu: 'Account menu',
+	moreActions: 'More actions',
+	displayMenu: 'Display settings',
+	openSource: 'Open original',
+	scopeAria: 'Article scope',
+	tabAll: 'All',
+	manageFolders: 'Manage folders…',
+	allTagsMenu: 'All tags',
+	removeFilterAria: 'Remove filter: {name}',
+	searchChip: 'Search: {q}',
+	clearFilters: 'Clear filters',
+	deleteFolder: 'Delete folder',
+	newFolderPlaceholder: 'New folder name',
+	uploadTokenHeading: 'Upload token',
+	deleteUser: 'Delete user',
 };
 
 const TABLE: Record<Locale, Record<MessageKey, string>> = { zh: ZH, en: EN };
