@@ -156,14 +156,6 @@ export const SHARE_DIALOG_STYLE = `
   white-space: nowrap;
   border: 0;
 }
-.share-open.badge {
-  appearance: none;
-  font: inherit;
-  cursor: pointer;
-  background: color-mix(in srgb, var(--accent) 12%, var(--card));
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  color: inherit;
-}
 @media (min-width: 640px) {
   .archive-share-backdrop {
     align-items: center;

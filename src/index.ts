@@ -45,6 +45,7 @@ import {
 	deleteUser,
 	getUserById,
 	listUsers,
+	parseDeletedArticlesMode,
 	revokeUserSessions,
 	rotateUploadToken,
 	setUserPassword,
@@ -650,12 +651,23 @@ async function handleAdminUserAction(request: Request, env: Env, session: Sessio
 	}
 	try {
 		if (action === 'delete') {
-			await deleteUser(env, userId);
+			// A plain delete button may post with no body at all.
+			const form = request.headers.get('content-type') ? await request.formData() : new FormData();
+			const result = await deleteUser(env, userId, {
+				actingAdminId: session.id,
+				articles: parseDeletedArticlesMode(form.get('articles')),
+			});
 			if (userId === session.id) {
 				const url = new URL(request.url);
 				return signedRedirect(url, '/login', clearSessionCookie(url));
 			}
-			return adminUsersPage(chrome, session, await listUsers(env));
+			const notice =
+				result.mode === 'transfer'
+					? t(chrome.locale, 'userDeletedTransferred', { user: result.username, n: result.articles })
+					: result.mode === 'delete'
+						? t(chrome.locale, 'userDeletedWithArticles', { user: result.username, n: result.articles })
+						: t(chrome.locale, 'userDeleted', { user: result.username });
+			return adminUsersPage(chrome, session, await listUsers(env), undefined, undefined, notice);
 		}
 		if (action === 'role') {
 			const form = await request.formData();

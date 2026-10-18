@@ -503,7 +503,7 @@ describe('article archive worker', () => {
 		expect(users).toContain('aria-current="page">Users');
 	});
 
-	it('renders a custom folder multi-select on list cards and article chrome', async () => {
+	it('renders a folder multi-select inside the article menu on list rows and article chrome', async () => {
 		const { cookie, token } = await setupAdmin();
 		expect((await upload(token, { slug: 'folder-ui', title: 'Folder UI' })).status).toBe(200);
 		const created = await SELF.fetch('http://example.com/folders', {
@@ -524,7 +524,10 @@ describe('article archive worker', () => {
 		expect(listHtml).toContain('>应用<');
 		expect(listHtml).toContain('>取消<');
 		expect(listHtml).not.toMatch(/<select[^>]*name="folder_id"/);
-		expect(listHtml).toContain('data-archive-folder-picker-script');
+		expect(listHtml).toContain('data-archive-menu-script');
+		// The picker sits inside the row's "more" menu, which is a <details data-menu>.
+		const rowMenu = listHtml.slice(listHtml.indexOf('<details class="menu article-menu" data-menu>'));
+		expect(rowMenu.slice(0, rowMenu.indexOf('</details>\n            </div>\n          </li>'))).toContain('data-folder-picker');
 
 		const page = await SELF.fetch('http://example.com/a/folder-ui', {
 			headers: { cookie: `${cookie}; archive_theme=dark; archive_lang=en` },
@@ -541,8 +544,11 @@ describe('article archive worker', () => {
 		expect(html).toContain('type="checkbox"');
 		expect(html).not.toMatch(/<select[^>]*name="folder_id"/);
 		expect(html).toContain('data-archive-folder-picker');
-		expect(html).toContain('#221e1a');
-		expect(html).toContain('#f4f1ea');
+		// The bar follows the site theme through tokens instead of fixed dark colors.
+		expect(html).toContain('data-archive-chrome-style');
+		expect(html).toContain('background: color-mix(in srgb, var(--bg) 88%, transparent) !important');
+		expect(html).not.toContain('#221e1a');
+		expect(html).toContain('data-archive-menu-script');
 	});
 
 	it('adds and removes folder membership in one POST', async () => {
