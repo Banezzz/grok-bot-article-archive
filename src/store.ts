@@ -20,6 +20,8 @@ export type ArticleRow = {
 	owner_id: string | null;
 	owner_username?: string | null;
 	shared: number;
+	/** The published-sort key as SQLite sees it; selected by listArticles for cursors. */
+	sort_published?: string | null;
 };
 
 export type TagRow = {
@@ -132,9 +134,14 @@ export function resolveArticleSort(request: Request, url: URL = new URL(request.
 	return parseArticleSort(url.searchParams.get('sort')) ?? parseSortCookie(request) ?? DEFAULT_ARTICLE_SORT;
 }
 
+// datetime() is NULL for dates SQLite cannot parse (older uploads accepted RFC 2822 and
+// other free text), so fall back to created_at per row instead of letting NULL drop the
+// article out of the keyset comparison.
+const PUBLISHED_SORT_SQL = 'COALESCE(datetime(articles.published_at), datetime(articles.created_at))';
+
 function orderByClause(sort: ArticleSort): string {
 	if (sort === 'published') {
-		return 'ORDER BY datetime(COALESCE(articles.published_at, articles.created_at)) DESC, datetime(articles.created_at) DESC, articles.id DESC';
+		return `ORDER BY ${PUBLISHED_SORT_SQL} DESC, datetime(articles.created_at) DESC, articles.id DESC`;
 	}
 	return 'ORDER BY datetime(articles.created_at) DESC, articles.id DESC';
 }
@@ -148,19 +155,24 @@ export function parseListLimit(value: string | number | null | undefined): numbe
 }
 
 function bytesToBase64Url(text: string): string {
-	return btoa(text).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+	let binary = '';
+	for (const byte of new TextEncoder().encode(text)) {
+		binary += String.fromCharCode(byte);
+	}
+	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 function base64UrlToText(raw: string): string {
 	const padded = raw.replace(/-/g, '+').replace(/_/g, '/');
 	const pad = padded.length % 4 === 0 ? '' : '='.repeat(4 - (padded.length % 4));
-	return atob(padded + pad);
+	const binary = atob(padded + pad);
+	return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)));
 }
 
-export function encodeListCursor(article: Pick<ArticleRow, 'id' | 'created_at' | 'published_at'>, sort: ArticleSort): string {
+export function encodeListCursor(article: Pick<ArticleRow, 'id' | 'created_at' | 'published_at' | 'sort_published'>, sort: ArticleSort): string {
 	const cursor: ListCursor =
 		sort === 'published'
-			? { s: sort, t: article.published_at ?? article.created_at, c: article.created_at, i: article.id }
+			? { s: sort, t: article.sort_published ?? article.published_at ?? article.created_at, c: article.created_at, i: article.id }
 			: { s: sort, t: article.created_at, i: article.id };
 	return bytesToBase64Url(JSON.stringify(cursor));
 }
@@ -190,13 +202,13 @@ function keysetAfter(sort: ArticleSort, cursor: ListCursor): { sql: string; bind
 		const created = cursor.c ?? cursor.t;
 		return {
 			sql: `(
-				datetime(COALESCE(articles.published_at, articles.created_at)) < datetime(?)
+				${PUBLISHED_SORT_SQL} < datetime(?)
 				OR (
-					datetime(COALESCE(articles.published_at, articles.created_at)) = datetime(?)
+					${PUBLISHED_SORT_SQL} = datetime(?)
 					AND datetime(articles.created_at) < datetime(?)
 				)
 				OR (
-					datetime(COALESCE(articles.published_at, articles.created_at)) = datetime(?)
+					${PUBLISHED_SORT_SQL} = datetime(?)
 					AND datetime(articles.created_at) = datetime(?)
 					AND articles.id < ?
 				)
@@ -282,10 +294,13 @@ export function parseUploadBody(data: unknown): UploadInput {
 		throw new HttpError(400, 'html is required');
 	}
 
-	const publishedAt = optionalString(body.published_at, 'published_at', 64);
-	if (publishedAt && Number.isNaN(new Date(publishedAt).getTime())) {
+	const publishedRaw = optionalString(body.published_at, 'published_at', 64);
+	const publishedDate = publishedRaw ? new Date(publishedRaw) : null;
+	if (publishedDate && Number.isNaN(publishedDate.getTime())) {
 		throw new HttpError(400, 'published_at must be an ISO datetime');
 	}
+	// Store ISO so SQLite's datetime() can sort it (RSS-style dates would sort as NULL).
+	const publishedAt = publishedDate ? publishedDate.toISOString() : undefined;
 
 	const slug = optionalString(body.slug, 'slug', SLUG_MAX);
 	if (slug && !isValidSlug(slug)) {
@@ -510,7 +525,7 @@ export async function listArticles(env: Env, query: ListQuery = {}): Promise<Art
 	const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
 	const result = await bindD1(
 		env.DB.prepare(
-			`SELECT articles.*, users.username AS owner_username
+			`SELECT articles.*, users.username AS owner_username, ${PUBLISHED_SORT_SQL} AS sort_published
 			 FROM articles
 			 LEFT JOIN users ON users.id = articles.owner_id
 			 ${where} ${order}
@@ -539,6 +554,7 @@ export async function listTags(env: Env, ownerId?: string): Promise<TagCount[]> 
 		 LEFT JOIN article_tags ON article_tags.tag_id = tags.id
 		 LEFT JOIN articles ON articles.id = article_tags.article_id ${ownerClause}
 		 GROUP BY tags.id
+		 ${ownerId ? 'HAVING COUNT(articles.id) > 0' : ''}
 		 ORDER BY tags.name_zh COLLATE NOCASE`,
 	);
 	const result = ownerId ? await bindD1(stmt, ownerId).all<TagCount>() : await stmt.all<TagCount>();
@@ -676,22 +692,40 @@ async function deleteObjects(env: Env, keys: Array<string | null | undefined>): 
  * tags over in one batch. Old objects are removed only after that batch commits; a
  * rejected write removes only the objects it created.
  */
-export async function upsertArticle(env: Env, input: UploadInput, writer: ArticleWriter): Promise<ArticleView> {
+export type UpsertResult = {
+	view: ArticleView;
+	/** Non-fatal problems, e.g. a thumbnail that could not be fetched. The article is stored regardless. */
+	warnings: string[];
+};
+
+export async function upsertArticle(env: Env, input: UploadInput, writer: ArticleWriter): Promise<UpsertResult> {
 	const providedSlug = input.slug;
 	const existing = providedSlug ? await getArticleBySlug(env, providedSlug) : null;
 	if (existing && !canOverwriteArticle(writer, existing)) {
 		throw new HttpError(409, SLUG_TAKEN_MESSAGE);
 	}
 
+	// A thumbnail is best-effort: a CDN that blocks the Worker or a bad image must not cost
+	// the whole archive. On failure the article is stored, any existing thumbnail is kept,
+	// and the problem is reported back as a warning.
+	const warnings: string[] = [];
 	const shouldResolveThumb = Boolean(input.thumbnail_url || input.thumbnail_base64 || !existing?.thumbnail_key);
-	const image = shouldResolveThumb
-		? await resolveThumbnailSource({
+	let image: Awaited<ReturnType<typeof resolveThumbnailSource>> = null;
+	if (shouldResolveThumb) {
+		try {
+			image = await resolveThumbnailSource({
 				thumbnail_url: input.thumbnail_url,
 				thumbnail_base64: input.thumbnail_base64,
 				html: input.html,
 				source_url: input.source_url,
-			})
-		: null;
+			});
+		} catch (error) {
+			if (!(error instanceof HttpError)) {
+				throw error;
+			}
+			warnings.push(error.message);
+		}
+	}
 
 	const now = new Date().toISOString();
 	const attempts = providedSlug ? 1 : GENERATED_SLUG_ATTEMPTS;
@@ -718,8 +752,6 @@ export async function upsertArticle(env: Env, input: UploadInput, writer: Articl
 			if (image) {
 				createdThumbKey = (await storeThumbnail(env, slug, image)).key;
 				thumbnailKey = createdThumbKey;
-			} else if (input.thumbnail_url || input.thumbnail_base64) {
-				thumbnailKey = null;
 			}
 
 			const statements = [
@@ -764,7 +796,7 @@ export async function upsertArticle(env: Env, input: UploadInput, writer: Articl
 		if (!view) {
 			throw new HttpError(500, 'Failed to persist article metadata');
 		}
-		return view;
+		return { view, warnings };
 	}
 	throw new HttpError(409, 'Could not allocate a unique slug');
 }

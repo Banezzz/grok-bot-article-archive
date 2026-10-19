@@ -67,6 +67,19 @@ Leave shared media unmarked so every mode still shows it. If a figure caption or
 </blockquote>
 ```
 
+### Tweets and X posts
+
+Archive every tweet as a static card captured at archive time, never as Twitter's `<script src="https://platform.twitter.com/widgets.js">` embed or an iframe. The archive serves stored HTML under a Content-Security-Policy that blocks all scripts in the article, so a live embed never renders here, and it would vanish with the tweet anyway. The card needs:
+
+| Part | Markup | Notes |
+| --- | --- | --- |
+| Author | `.tweet-head` with `img.tweet-avatar`, `.tweet-author strong` (display name), `.tweet-handle` (`@handle`) | Avatar as a `data:` URI (40×40 is enough). |
+| Text | `<p>`; bilingual pages use `p.zh` + `p.en` | Expand `t.co` links to their real targets. |
+| Media | `.tweet-media` with one `<img>` per photo | Every photo as a `data:` URI. For video or GIF, embed the poster frame and say "video" in `alt`. Omit `.tweet-media` when there is none. |
+| Link and time | `p.tweet-foot` with `<a href="https://x.com/{handle}/status/{id}">` and `<time datetime>` | Canonical `x.com` status URL. Readers get a confirm prompt and a new tab when they open it. |
+
+Quoted tweets nest a second `.tweet-card` inside the first. The full markup is in both templates. The live article view also styles older text-only `.tweet-card` blocks and pasted `blockquote.twitter-tweet` markup as cards, but it cannot add an avatar or images that were never captured.
+
 Do not put `lang="zh"` on the whole `<article>` of a bilingual page — that wrapper is ignored by the switch (so a Chinese-only article is not treated as a language pair). The switch is hidden on pages that are not bilingual.
 
 The interface language toggle (`中文` / `EN`) only changes chrome labels. It is separate from this content-language control.

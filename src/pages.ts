@@ -2,14 +2,14 @@ import {
 	CONTENT_LANG_BOOTSTRAP,
 	CONTENT_LANG_HINT,
 	CONTENT_LANG_SCRIPT,
-	analyzeArticleLanguage,
 	contentLangStyleTag,
 	contentLangSwitch,
 	insertSwitchIntoArticleHtml,
-	markRecoveredLanguagePairs,
+	prepareArticleLanguage,
 	type ContentLang,
 } from './content-lang';
 import { appPagePolicy, articlePagePolicy, scriptHashSources } from './csp';
+import { isAbsoluteHttpHref, LINK_CONFIRM_SCRIPT, LINK_CONFIRM_STYLE, linkConfirmInjection, linkConfirmMarkup, linkConfirmStyleTag } from './link-confirm';
 import type { FolderSummary } from './folders';
 import {
 	formatUiDate,
@@ -56,34 +56,50 @@ html body {
   background-color: var(--bg) !important;
   color: var(--fg) !important;
 }
-html body > :not([data-archive-chrome]):not([data-archive-content-lang-switch]):not(#archive-lightbox):not(#archive-share-dialog):not(script):not(style) {
+html body > :not([data-archive-chrome]):not([data-archive-content-lang-switch]):not(#archive-lightbox):not(#archive-share-dialog):not(#archive-link-dialog):not(script):not(style) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not([data-archive-content-lang-switch]):not([data-archive-content-lang-switch] *):not(#archive-lightbox):not(#archive-lightbox *):not(#archive-share-dialog):not(#archive-share-dialog *) {
+html body :is(main, article, header, footer, section, .pair, .page, .wrapper, .container, .content, .post, .markdown-body):not([data-archive-chrome]):not([data-archive-chrome] *):not([data-archive-content-lang-switch]):not([data-archive-content-lang-switch] *):not(#archive-lightbox):not(#archive-lightbox *):not(#archive-share-dialog):not(#archive-share-dialog *):not(#archive-link-dialog):not(#archive-link-dialog *) {
   background-color: transparent !important;
   color: var(--fg) !important;
 }
-html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(p, h1, h2, h3, h4, h5, h6, li, dt, dd, td, th, .zh, .pair):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   color: var(--fg) !important;
 }
-html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(.en, .muted, blockquote, figcaption, .gap, header.meta p):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   color: var(--muted) !important;
 }
-html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(main, article, header, footer, section, .pair, p, li, figcaption) a:not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   color: var(--accent) !important;
 }
-html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(hr, header.meta, .pair, table, th, td, figure, blockquote, pre, .gap):not([data-archive-chrome] *):not([data-archive-content-lang-switch] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   border-color: var(--border) !important;
 }
-html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body :is(pre, code, .gap):not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   background: var(--card) !important;
   background-color: var(--card) !important;
   color: var(--fg) !important;
 }
-html body blockquote:not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *) {
+html body blockquote:not([data-archive-chrome] *):not(#archive-lightbox *):not(#archive-share-dialog *):not(#archive-link-dialog *) {
   border-left-color: var(--border) !important;
 }
+/* Tweets: the bot's static card (see templates/), older text-only cards, and Twitter's own
+   embed markup, which never upgrades here because widgets.js is blocked by the CSP. */
+html body :is(blockquote.tweet-card, figure.tweet-card, blockquote.twitter-tweet) {
+  max-width: 560px; margin: 1.5em 0 !important; padding: 14px 16px !important;
+  border: 1px solid var(--border) !important; border-radius: 14px !important; background: var(--card) !important;
+}
+html body .tweet-card .tweet-head { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; }
+html body .tweet-card .tweet-avatar { flex: 0 0 auto; width: 40px !important; height: 40px !important; margin: 0 !important; border-radius: 50% !important; object-fit: cover; }
+html body .tweet-card .tweet-author { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+html body .tweet-card .tweet-author strong { color: var(--fg) !important; font-weight: 650; }
+html body .tweet-card .tweet-handle { color: var(--muted) !important; font-size: 0.88em; }
+html body :is(.tweet-card, .twitter-tweet) p { margin: 0.35em 0 !important; }
+html body .tweet-card .tweet-media { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 4px; margin: 10px 0 4px; border-radius: 12px; overflow: hidden; }
+html body .tweet-card .tweet-media img { display: block; width: 100%; height: 100%; max-height: 420px; margin: 0 !important; border-radius: 0 !important; object-fit: cover; }
+html body .tweet-card .tweet-foot { margin: 8px 0 0 !important; font-size: 0.85em; }
+html body :is(.tweet-card .tweet-foot, .twitter-tweet) a { color: var(--muted) !important; }
 `;
 
 export function articleThemeOverrideStyleTag(): string {
@@ -284,7 +300,7 @@ function layout(title: string, body: string, chrome: Chrome): string {
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <title>${escapeHtml(title)}</title>
-  <style>${CHROME_STYLE}${MENU_STYLE}${FOLDER_PICKER_STYLE}${LIGHTBOX_STYLE}${SHARE_DIALOG_STYLE}</style>
+  <style>${CHROME_STYLE}${MENU_STYLE}${FOLDER_PICKER_STYLE}${LIGHTBOX_STYLE}${SHARE_DIALOG_STYLE}${LINK_CONFIRM_STYLE}</style>
   ${LANG_BOOTSTRAP}
   ${THEME_BOOTSTRAP}
 </head>
@@ -292,9 +308,11 @@ function layout(title: string, body: string, chrome: Chrome): string {
 ${body}
 ${lightboxMarkup(chrome.locale)}
 ${shareDialogMarkup(chrome.locale)}
+${linkConfirmMarkup(chrome.locale)}
 ${MENU_SCRIPT}
 ${LIGHTBOX_SCRIPT}
 ${SHARE_DIALOG_SCRIPT}
+${LINK_CONFIRM_SCRIPT}
 </body>
 </html>`;
 }
@@ -313,6 +331,7 @@ export function inlineScriptHashes(): string[] {
 		CONTENT_LANG_BOOTSTRAP,
 		CONTENT_LANG_SCRIPT,
 		CONTENT_LANG_HINT,
+		LINK_CONFIRM_SCRIPT,
 	]);
 	return cachedScriptHashes;
 }
@@ -744,7 +763,11 @@ export function articleListItemsHtml(
 		.map((article) => {
 			const source = safeHttpUrl(article.source_url);
 			const host = sourceHost(source);
-			const when = formatUiDate(article.published_at ?? article.created_at, locale);
+			// Show the timestamp the list is ordered by, so the dates read in order.
+			const byJoined = (filters.sort ?? 'joined') === 'joined';
+			const whenIso = byJoined ? article.created_at : (article.published_at ?? article.created_at);
+			const when = formatUiDate(whenIso, locale);
+			const whenTitle = t(locale, byJoined ? 'sortJoined' : 'sortPublished');
 			const thumb = article.thumbnail_key
 				? `<button type="button" class="thumb-zoom" aria-label="${escapeHtml(t(locale, 'lightboxOpen'))}"><img class="thumb" src="/thumb/${encodeURIComponent(article.slug)}" alt="" width="112" height="74" loading="lazy"></button>`
 				: '';
@@ -765,7 +788,7 @@ export function articleListItemsHtml(
               <div class="meta">
                 ${article.author ? `<span>${escapeHtml(article.author)}</span>` : ''}
                 ${host && source ? `<a href="${escapeHtml(source)}" rel="noreferrer noopener" target="_blank" title="${escapeHtml(t(locale, 'source'))}">${escapeHtml(host)}</a>` : ''}
-                ${when ? `<time datetime="${escapeHtml(article.published_at ?? article.created_at)}">${escapeHtml(when)}</time>` : ''}
+                ${when ? `<time datetime="${escapeHtml(whenIso)}" title="${escapeHtml(whenTitle)}">${escapeHtml(when)}</time>` : ''}
                 ${article.lang ? `<span class="badge">${escapeHtml(article.lang)}</span>` : ''}
                 ${isArticleShared(article) ? `<span>${sharedBadge(article, locale)}</span>` : ''}
                 ${owner}
@@ -1179,7 +1202,7 @@ html body [data-archive-chrome] .icon-btn.star.on { color: #c8921a !important; }
 html body [data-archive-chrome] .share-open.badge {
   appearance: none !important; margin: 0 4px 0 0 !important; padding: 3px 9px !important; border: 0 !important; border-radius: 999px !important;
   background: color-mix(in srgb, var(--accent) 14%, transparent) !important; color: var(--accent) !important;
-  font: 600 12px/1.3 inherit !important; cursor: pointer !important;
+  font-family: inherit !important; font-size: 12px !important; font-weight: 600 !important; line-height: 1.3 !important; cursor: pointer !important;
 }
 html body [data-archive-chrome] .menu > summary::-webkit-details-marker { display: none !important; }
 html body [data-archive-chrome] .menu-panel {
@@ -1203,7 +1226,7 @@ html body [data-archive-chrome] .menu-row { color: var(--muted) !important; font
 html body [data-archive-chrome] label.folder-picker-option { color: var(--fg) !important; background: transparent !important; font-size: 13px !important; }
 html body [data-archive-chrome] .folder-picker-actions button {
   appearance: none !important; height: 30px !important; margin: 0 !important; padding: 0 12px !important; border-radius: 8px !important; border: 1px solid transparent !important;
-  background: var(--accent) !important; color: var(--accent-fg) !important; font: 550 13px/1 inherit !important; cursor: pointer !important;
+  background: var(--accent) !important; color: var(--accent-fg) !important; font-family: inherit !important; font-size: 13px !important; font-weight: 550 !important; line-height: 1 !important; cursor: pointer !important;
 }
 html body [data-archive-chrome] .folder-picker-actions button.ghost { background: transparent !important; color: var(--fg) !important; border-color: var(--border) !important; }
 html body [data-archive-chrome] :is(.lang-switch, .theme-switch) {
@@ -1283,6 +1306,33 @@ function archiveBar(article: ArticleView, folders: FolderSummary[], chrome: Chro
 </nav>`;
 }
 
+/**
+ * HTMLRewriter handlers fire only for tags that literally appear, so stored HTML without
+ * <html>, <head> or <body> (a fragment, or the README's minimal sample) would lose the bar,
+ * styles and scripts. Add whichever of the three is missing. Serve-time only; R2 is unchanged.
+ */
+export function ensureDocumentShell(html: string): string {
+	let out = html;
+	if (!/<html[\s>]/i.test(out)) {
+		const doctype = /^\s*<!doctype[^>]*>/i.exec(out);
+		const at = doctype ? doctype[0].length : 0;
+		out = `${out.slice(0, at)}<html>${out.slice(at)}</html>`;
+	}
+	const htmlOpen = /<html\b[^>]*>/i.exec(out);
+	const afterHtml = htmlOpen ? htmlOpen.index + htmlOpen[0].length : 0;
+	if (!/<head[\s>]/i.test(out)) {
+		out = `${out.slice(0, afterHtml)}<head></head>${out.slice(afterHtml)}`;
+	}
+	if (!/<body[\s>]/i.test(out)) {
+		const headClose = /<\/head\s*>/i.exec(out);
+		const start = headClose ? headClose.index + headClose[0].length : afterHtml;
+		const htmlClose = out.toLowerCase().lastIndexOf('</html');
+		const end = htmlClose >= start ? htmlClose : out.length;
+		out = `${out.slice(0, start)}<body>${out.slice(start, end)}</body>${out.slice(end)}`;
+	}
+	return out;
+}
+
 export async function injectArchiveChrome(
 	htmlResponse: Response,
 	article: ArticleView,
@@ -1295,8 +1345,8 @@ export async function injectArchiveChrome(
 	const articlePath = `/a/${encodeURIComponent(article.slug)}`;
 	const switchMarkup = contentLangSwitch(chrome.locale, articlePath, chrome.contentLang);
 	const sourceHtml = await htmlResponse.text();
-	const analysis = analyzeArticleLanguage(sourceHtml);
-	const prepared = insertSwitchIntoArticleHtml(markRecoveredLanguagePairs(sourceHtml), switchMarkup);
+	const { analysis, html: marked } = prepareArticleLanguage(sourceHtml);
+	const prepared = ensureDocumentShell(insertSwitchIntoArticleHtml(marked, switchMarkup));
 	const headers = new Headers(htmlResponse.headers);
 	headers.set('content-security-policy', articlePagePolicy(inlineScriptHashes()));
 	headers.set('x-frame-options', 'DENY');
@@ -1310,6 +1360,16 @@ export async function injectArchiveChrome(
 				element.setAttribute('method', 'dialog');
 				element.removeAttribute('action');
 				element.removeAttribute('target');
+			},
+		})
+		// Off-site links leave in a new tab so the archived article stays open (the confirm
+		// dialog adds a prompt when script runs). The chrome is inserted raw and is not matched here.
+		.on('a[href]', {
+			element(element) {
+				if (isAbsoluteHttpHref(element.getAttribute('href'))) {
+					element.setAttribute('target', '_blank');
+					element.setAttribute('rel', 'noopener noreferrer');
+				}
 			},
 		})
 		.on('[formaction], [formmethod], [formtarget], [formenctype], [form]', {
@@ -1344,6 +1404,7 @@ export async function injectArchiveChrome(
 				element.append(articleThemeOverrideStyleTag(), { html: true });
 				element.append(contentLangStyleTag(), { html: true });
 				element.append(chromeStyleTag(), { html: true });
+				element.append(linkConfirmStyleTag(), { html: true });
 				element.append(CONTENT_LANG_BOOTSTRAP, { html: true });
 			},
 		})
@@ -1356,6 +1417,7 @@ export async function injectArchiveChrome(
 				}
 				element.append(lightbox, { html: true });
 				element.append(CONTENT_LANG_SCRIPT, { html: true });
+				element.append(linkConfirmInjection(chrome.locale), { html: true });
 				element.onEndTag((end) => {
 					if (analysis.bilingual) {
 						end.before(CONTENT_LANG_HINT, { html: true });

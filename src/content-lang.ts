@@ -2,7 +2,7 @@ import { analyzeArticleLanguage } from './content-lang-detect';
 import { t, type Locale } from './i18n';
 import { escapeHtml } from './util';
 
-export { analyzeArticleLanguage, classifyTextRole, markRecoveredLanguagePairs, measureContentLang, looksBilingualLegacy } from './content-lang-detect';
+export { analyzeArticleLanguage, classifyTextRole, markRecoveredLanguagePairs, measureContentLang, looksBilingualLegacy, prepareArticleLanguage } from './content-lang-detect';
 
 export const CONTENT_LANG_STORAGE_KEY = 'archive_content_lang';
 export type ContentLang = 'zh' | 'en' | 'both';

@@ -26,12 +26,12 @@ The request body must be a JSON object. The complete request body is limited to 
 | `author` | no | string, max 200 characters | Empty, null, or omitted values are ignored. |
 | `lang` | no | string, max 16 characters | A source-language label such as `en` or `zh`. |
 | `slug` | no | string, max 128 characters; lowercase letters, digits, and hyphens; starts and ends with a letter or digit | Reuses/upserts an existing article with that slug. Only the article's owner or an admin token may replace it; any other token gets `409`. If omitted, a slug is generated from the title and date (with a random suffix on collision). |
-| `published_at` | no | string, max 64 characters; must parse as a date | Prefer an ISO-8601 datetime. |
+| `published_at` | no | string, max 64 characters; must parse as a date | Prefer an ISO-8601 datetime. Any parseable date (including RFC 2822, e.g. an RSS `pubDate`) is stored normalised to ISO-8601 UTC. |
 | `notes` | no | string, max 4,000 characters | Operator notes. |
 | `summary_zh` | no | string, max 4,000 characters | Chinese summary shown with the article metadata. Operationally recommended for bot uploads. |
 | `tags` | no | array of strings; each normalized to lowercase, valid slug, max 64 characters | Duplicate slugs are removed. Use conservative topical tags. |
-| `thumbnail_url` | no | string, max 2,048 characters | Optional thumbnail source URL. The application fetches it (images up to 20 MiB) and stores it. |
-| `thumbnail_base64` | no | string; decoded image max 20 MiB, but the whole request is still capped at 8 MiB | Optional image data, preferably a complete data URI or supported base64 value. The application attempts to store it. |
+| `thumbnail_url` | no | string, max 2,048 characters | Optional thumbnail source URL. The application fetches it (images up to 20 MiB) and stores it. If the fetch fails or the bytes are not a JPEG/PNG/GIF/WebP/AVIF image, the article is still stored and the response carries a `warnings` entry. |
+| `thumbnail_base64` | no | string; decoded image max 20 MiB, but the whole request is still capped at 8 MiB | Optional image data, preferably a complete data URI or supported base64 value. The type is detected from the image bytes, not the declared type; anything that is not a supported image is skipped with a `warnings` entry. |
 
 For optional strings, empty strings and `null` are treated like omitted values. Invalid types, overlong values, invalid slugs, non-array tags, or invalid dates return `400` with a JSON error.
 
@@ -73,7 +73,7 @@ A successful upsert returns HTTP `200` and this shape:
 }
 ```
 
-`thumbnail_url` can be `null` when no thumbnail was stored. `owner_username` can be `null` for legacy uploads. The returned `url` is a path; resolve it against the operator's own `ARCHIVE_URL`.
+When something non-fatal went wrong, such as a thumbnail that could not be fetched or is not an image, the response also has `"warnings": ["…"]`; the article was stored and any thumbnail it already had is kept. The key is absent when there is nothing to report. `thumbnail_url` can be `null` when no thumbnail was stored. `owner_username` can be `null` for legacy uploads. The returned `url` is a path; resolve it against the operator's own `ARCHIVE_URL`.
 
 ## Errors
 

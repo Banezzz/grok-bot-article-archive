@@ -20,10 +20,12 @@ function extensionFor(contentType: string, fallback = 'jpg'): string {
 	return MIME_EXT[contentType] ?? fallback;
 }
 
-function sniffContentType(bytes: Uint8Array, hinted?: string | null): string {
-	if (hinted && MIME_EXT[hinted.split(';', 1)[0] ?? '']) {
-		return hinted.split(';', 1)[0] ?? 'image/jpeg';
-	}
+/**
+ * The image type from the file's magic bytes, or null when it is not a supported image.
+ * Declared types (data URI, Content-Type) are ignored: an HTML soft-404 or a mislabelled
+ * blob must not be stored and served as a thumbnail.
+ */
+function sniffContentType(bytes: Uint8Array): string | null {
 	if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
 		return 'image/jpeg';
 	}
@@ -33,10 +35,16 @@ function sniffContentType(bytes: Uint8Array, hinted?: string | null): string {
 	if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
 		return 'image/gif';
 	}
-	if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+	if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
 		return 'image/webp';
 	}
-	return 'image/jpeg';
+	if (bytes.length >= 12) {
+		const box = String.fromCharCode(...bytes.subarray(4, 12));
+		if (box === 'ftypavif' || box === 'ftypavis') {
+			return 'image/avif';
+		}
+	}
+	return null;
 }
 
 function decodeBase64(value: string): Uint8Array {
@@ -58,7 +66,8 @@ export function parseImageDataUri(value: string): { contentType: string; bytes: 
 		if (bytes.byteLength === 0 || bytes.byteLength > MAX_THUMB_BYTES) {
 			return null;
 		}
-		return { contentType: sniffContentType(bytes, match[1]), bytes };
+		const contentType = sniffContentType(bytes);
+		return contentType ? { contentType, bytes } : null;
 	} catch {
 		return null;
 	}
@@ -139,16 +148,12 @@ async function bytesFromRemoteUrl(url: string): Promise<{ contentType: string; b
 		await response.body?.cancel();
 		return null;
 	}
-	const hinted = response.headers.get('content-type')?.split(';', 1)[0] ?? null;
 	const bytes = await readBodyUpTo(response, MAX_THUMB_BYTES);
 	if (!bytes || bytes.byteLength === 0) {
 		return null;
 	}
-	const contentType = sniffContentType(bytes, hinted);
-	if (!MIME_EXT[contentType]) {
-		return null;
-	}
-	return { contentType, bytes };
+	const contentType = sniffContentType(bytes);
+	return contentType ? { contentType, bytes } : null;
 }
 
 function imageFromBase64Field(value: string): { contentType: string; bytes: Uint8Array } | null {
@@ -161,7 +166,8 @@ function imageFromBase64Field(value: string): { contentType: string; bytes: Uint
 		if (bytes.byteLength === 0 || bytes.byteLength > MAX_THUMB_BYTES) {
 			return null;
 		}
-		return { contentType: sniffContentType(bytes), bytes };
+		const contentType = sniffContentType(bytes);
+		return contentType ? { contentType, bytes } : null;
 	} catch {
 		return null;
 	}
